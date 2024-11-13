@@ -1,0 +1,12 @@
+{
+    "domain": "fuel_prices_uk",
+    "name": "Fuel Prices UK",
+    "codeowners": ["@beecho01"],
+    "config_flow": true,
+    "dependencies": ["http", "frontend"],
+    "documentation": "https://github.com/beecho01/Fuel-Prices-UK",
+    "iot_class": "local_polling",
+    "issue_tracker": "https://github.com/beecho01/Fuel-Prices-UK/issues",
+    "requirements": [],
+    "version": "2024.11.13"
+}

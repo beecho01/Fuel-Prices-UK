@@ -1,2 +1,2 @@
-# Fuel_Prices_UK
-Fuel prices per Petrol Station in the UK! A Home Assistant custom component HACS integration based on the [UK Government collected Fuel Data](https://www.gov.uk/guidance/access-fuel-price-data)
+# Fuel Prices UK for Home Assistant
+Fuel prices per Petrol Station in the UK! A Home Assistant custom component HACS integration based on the [UK Government collected Fuel Data](https://www.gov.uk/guidance/access-fuel-price-data).
