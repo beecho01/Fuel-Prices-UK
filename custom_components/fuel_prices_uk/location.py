@@ -112,8 +112,24 @@ def fetch_postcode_data(url):
     return None
 
 
-def is_within_distance(user_location, station_location, max_distance=5):
+def is_within_distance(user_location, station_location, radius=5, unit='mi'):
+    """
+    Determines if the station is within the specified radius from the user's location.
+
+    :param user_location: A dictionary with 'latitude' and 'longitude' keys for the user's location.
+    :param station_location: A dictionary with 'latitude' and 'longitude' keys for the station's location.
+    :param radius: The radius within which to search.
+    :param unit: The unit of measurement for the radius ('km' or 'mi').
+    :return: True if the station is within the radius, False otherwise.
+    """
     user_coords = (user_location["latitude"], user_location["longitude"])
     station_coords = (station_location["latitude"], station_location["longitude"])
-
-    return distance.distance(user_coords, station_coords).miles <= max_distance
+    
+    calculated_distance = distance.distance(user_coords, station_coords)
+    
+    if unit == 'km':
+        return calculated_distance.km <= radius
+    elif unit == 'mi':
+        return calculated_distance.miles <= radius
+    else:
+        raise ValueError("Invalid unit. Please use 'km' or 'mi'.")

@@ -2,18 +2,17 @@ import requests
 
 from bs4 import BeautifulSoup
 
-
+# Fetching HTML Data
 def fetch_fuel_data(url):
     try:
-        # Send a GET request to fetch the raw HTML content
         response = requests.get(url)
-        response.raise_for_status()  # Raises HTTPError for bad responses
+        response.raise_for_status()
         return response.text
     except requests.exceptions.RequestException as e:
         print(f"Error fetching the URL: {e}")
         return None
 
-
+# Parsing HTML Data
 def parse_fuel_data(html_data):
     soup = BeautifulSoup(html_data, "html.parser")
     table = soup.find("table")
@@ -36,7 +35,7 @@ def parse_fuel_data(html_data):
 
     return retailers
 
-
+# Main Function to Fetch Retailers
 def fetch_fuel_retailers():
     url = "https://www.gov.uk/guidance/access-fuel-price-data"
     html_data = fetch_fuel_data(url)
@@ -44,3 +43,9 @@ def fetch_fuel_retailers():
     if html_data:
         retailers = parse_fuel_data(html_data)
         return retailers
+    
+# Test Code
+#if __name__ == "__main__":
+#    retailers = fetch_fuel_retailers()
+#    for retailer in retailers:
+#        print(f"{retailer['retailer']}, {retailer['url']}")
