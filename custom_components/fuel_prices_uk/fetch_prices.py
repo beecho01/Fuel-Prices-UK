@@ -1,131 +1,206 @@
-import json, requests, subprocess, logging
+import requests
+import logging
+import json
 
-from fetch_retailers import fetch_fuel_retailers
-from location import is_within_distance
+from typing import List, Dict, Any, Optional
+from .location import is_within_distance
+
+from .const import (
+    DATA_STATION_APPLEGREEN,
+    DATA_STATION_APPLEGREEN_URL,
+    DATA_STATION_ASCONA_GROUP,
+    DATA_STATION_ASCONA_GROUP_URL,
+    DATA_STATION_ASDA,
+    DATA_STATION_ASDA_URL,
+    DATA_STATION_BP,
+    DATA_STATION_BP_URL,
+    DATA_STATION_ESSO_TESCO_ALLIANCE,
+    DATA_STATION_ESSO_TESCO_ALLIANCE_URL,
+    DATA_STATION_JET,
+    DATA_STATION_JET_URL,
+    DATA_STATION_KARAN,
+    DATA_STATION_KARAN_URL,
+    DATA_STATION_MORRISONS,
+    DATA_STATION_MORRISONS_URL,
+    DATA_STATION_MOTO,
+    DATA_STATION_MOTO_URL,
+    DATA_STATION_MOTOR_FUEL_GROUP,
+    DATA_STATION_MOTOR_FUEL_GROUP_URL,
+    DATA_STATION_RONTEC,
+    DATA_STATION_RONTEC_URL,
+    DATA_STATION_SAINSBURYS,
+    DATA_STATION_SAINSBURYS_URL,
+    DATA_STATION_SGN,
+    DATA_STATION_SGN_URL,
+    DATA_STATION_SHELL,
+    DATA_STATION_SHELL_URL,
+    DATA_STATION_TESCO,
+    DATA_STATION_TESCO_URL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-#Fetching Data with Requests and Fallback to Curl
-def fetch_data_via_curl(name, url, headers):
+def get_all_prices() -> List[Dict[str, Any]]:
+    """Fetch fuel prices from all configured stations."""
+    stations = [
+        {
+            "name": DATA_STATION_APPLEGREEN,
+            "url": DATA_STATION_APPLEGREEN_URL
+        },
+        {
+            "name": DATA_STATION_ASCONA_GROUP,
+            "url": DATA_STATION_ASCONA_GROUP_URL
+        },
+        {
+            "name": DATA_STATION_ASDA,
+            "url": DATA_STATION_ASDA_URL
+        },
+        {
+            "name": DATA_STATION_BP,
+            "url": DATA_STATION_BP_URL},
+        {
+            "name": DATA_STATION_ESSO_TESCO_ALLIANCE,
+            "url": DATA_STATION_ESSO_TESCO_ALLIANCE_URL,
+        },
+        {
+            "name": DATA_STATION_JET,
+            "url": DATA_STATION_JET_URL
+        },
+        {
+            "name": DATA_STATION_KARAN, 
+            "url": DATA_STATION_KARAN_URL
+        },
+        {
+            "name": DATA_STATION_MORRISONS,
+            "url": DATA_STATION_MORRISONS_URL
+        },
+        {
+            "name": DATA_STATION_MOTO,
+            "url": DATA_STATION_MOTO_URL
+        },
+        {
+            "name": DATA_STATION_MOTOR_FUEL_GROUP,
+            "url": DATA_STATION_MOTOR_FUEL_GROUP_URL,
+        },
+        {
+            "name": DATA_STATION_RONTEC,
+            "url": DATA_STATION_RONTEC_URL
+        },
+        {   "name": DATA_STATION_SAINSBURYS,
+            "url": DATA_STATION_SAINSBURYS_URL
+        },
+        {
+            "name": DATA_STATION_SGN,
+            "url": DATA_STATION_SGN_URL
+        },
+        {
+            "name": DATA_STATION_SHELL,
+            "url": DATA_STATION_SHELL_URL
+        },
+        {
+            "name": DATA_STATION_TESCO,
+            "url": DATA_STATION_TESCO_URL
+        },
+    ]
+
+    all_prices = []
+
+    for station in stations:
+        station_name = station.get("name")
+        station_url = station.get("url")
+
+        if not station_name or not station_url:
+            _LOGGER.error(f"Station information is incomplete: {station}")
+            continue
+
+        data = get_prices_from_station(station_name, station_url)
+        if data:
+            processed_data = process_station_data(station_name, data)
+            if processed_data:
+                all_prices.extend(processed_data)
+        else:
+            _LOGGER.warning(f"No data returned for {station_name}")
+
+    return all_prices
+
+def get_prices_from_station(station_name: str, station_url: str) -> Optional[Dict[str, Any]]:
+    """Fetch prices from a single station."""
     try:
-        command = [
-            'curl', '-s', url,
-            '-H', 'accept-language: en-GB,en;q=0.9',
-            '-H', f"User-Agent: {headers['User-Agent']}",
-            '--compressed'
-        ]
-        result = subprocess.run(command, capture_output=True, text=True)
-        return json.loads(result.stdout) if result.returncode == 0 else None
-    except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
-        print(f"Error fetching {name} via curl: {e}")
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (compatible; FuelPricesIntegration/1.0)'
+        }
+        response = requests.get(station_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        content_type = response.headers.get('Content-Type', '')
+        content_disposition = response.headers.get('Content-Disposition', '')
+
+        _LOGGER.debug(f"Content type for {station_name}: {content_type}")
+        _LOGGER.debug(f"Content disposition for {station_name}: {content_disposition}")
+
+        if 'attachment' in content_disposition or 'application/octet-stream' in content_type:
+            # Handle as file attachment
+            try:
+                content = response.content.decode('utf-8')
+                data = json.loads(content)
+            except (UnicodeDecodeError, json.JSONDecodeError) as e:
+                _LOGGER.error(f"Failed to parse JSON data for {station_name}: {e}")
+                return None
+        else:
+            # Attempt to parse the response as JSON directly
+            try:
+                data = response.json()
+            except ValueError as e:
+                _LOGGER.error(f"Failed to parse JSON data for {station_name}: {e}")
+                return None
+
+        return data
+
+    except requests.exceptions.RequestException as e:
+        _LOGGER.error(f"Error fetching data for {station_name}: {e}")
         return None
 
-#Fetching Data from All Retailers
-def get_all_prices():
-    price_data = []
-    session = requests.Session()
-    for retailer in fetch_fuel_retailers():
-        name, url = retailer["retailer"], retailer["url"]
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0"
-        }
+def process_station_data(station_name: str, data: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """Process raw data from a station and extract fuel prices."""
+    try:
+        prices = []
 
-    for retailer in fetch_fuel_retailers():
-        name, url = retailer["retailer"], retailer["url"]
-        try:
-            response = session.get(url, headers=headers, timeout=5)
-            response.raise_for_status()
-            data = response.json()
-        except requests.exceptions.HTTPError as e:
-            _LOGGER.error(f"HTTP error fetching {name}: {e}")
-            data = None
-        except requests.exceptions.RequestException as e:
-            _LOGGER.error(f"Request exception fetching {name}: {e}")
-            data = None
-        except json.JSONDecodeError as e:
-            _LOGGER.error(f"JSON decode error fetching {name}: {e}")
-            data = None
+        if station_name == DATA_STATION_SAINSBURYS:
+            # Existing processing logic for Sainsbury's
+            for station in data.get('stations', []):
+                station_address = station.get('address', 'Unknown')
+                station_prices = station.get('prices', {})
+                for fuel_type, price in station_prices.items():
+                    prices.append({
+                        'name': station_name,
+                        'station_name': station_address,
+                        'fuel_type': fuel_type,
+                        'price': price,
+                        'last_updated': data.get('last_updated'),
+                    })
 
-        if data:
-            price_data.append({"retailer": name, "data": data})
+        elif station_name == DATA_STATION_SHELL:
+            # Process data specific to Shell
+            # Assuming Shell's data structure is similar
+            for station in data.get('stations', []):
+                station_address = station.get('address', 'Unknown')
+                station_prices = station.get('prices', {})
+                for fuel_type, price in station_prices.items():
+                    prices.append({
+                        'name': station_name,
+                        'station_name': station_address,
+                        'fuel_type': fuel_type,
+                        'price': price,
+                        'last_updated': data.get('last_updated'),
+                    })
+
+        # Add processing logic for other stations as needed
+
         else:
-            _LOGGER.warning(f"Failed to fetch data for {name} from {url}")
+            # Default processing if applicable
+            pass
 
-    return price_data
+        return prices if prices else None
 
-#Filtering Nearby Fuel Stations
-def nearby_prices(all_prices, latitude, longitude, radius=5, unit='km'):
-    nearby_stations = [
-        {"query_location": {"latitude": latitude, "longitude": longitude}}
-    ]
-    for retailer in all_prices:
-        name = retailer["retailer"]
-        station_data = retailer["data"]
-        filtered_stations = []
-        for station in station_data.get("stations", []):
-            station_latitude = station["location"]["latitude"]
-            station_longitude = station["location"]["longitude"]
-            if is_within_distance(
-                {"latitude": latitude, "longitude": longitude},
-                {"latitude": station_latitude, "longitude": station_longitude},
-                radius,
-                unit
-            ):
-                filtered_stations.append(station)
-        if filtered_stations:
-            nearby_stations.append(
-                {
-                    "retailer": name,
-                    "data": {
-                        "last_updated": station_data.get("last_updated"),
-                        "stations": filtered_stations,
-                    },
-                }
-            )
-    return nearby_stations
-
-# Test Code
-#from fetch_prices import get_all_prices, nearby_prices
-#
-#def main():
-    # Fetch all fuel prices
-#    all_prices = get_all_prices()
-
-    # Coordinates for the City of London
-#    city_of_london_latitude = 51.5074
-#    city_of_london_longitude = -0.1278
-
-    # Define the radius and units
-#    radius = float(input("Enter the search radius: "))
-#    unit = input("Enter the unit ('km' or 'mi'): ").strip().lower()
-
-#    if unit not in ['km', 'mi']:
-#        print("Invalid unit. Defaulting to kilometers.")
-#        unit = 'mi'
-
-    # Get nearby stations
-#    nearby_stations = nearby_prices(
-#        all_prices,
-#        city_of_london_latitude,
-#        city_of_london_longitude,
-#        radius=radius,
-#        unit=unit
-#    )
-
-    # Print the results
-#    for retailer in nearby_stations:
-#        if 'query_location' in retailer:
-#            continue  # Skip the query location entry
-#        print(f"Retailer: {retailer['retailer']}")
-#        for station in retailer['data']['stations']:
-#            station_name = station.get('name', 'Unknown')
-#            station_lat = station['location']['latitude']
-#            station_lon = station['location']['longitude']
-#            print(f"  Station: {station_name}")
-#            print(f"    Location: ({station_lat}, {station_lon})")
-#            print(f"    Prices: {station.get('prices', {})}")
-#            print(f"    Last Updated: {station.get('last_updated', 'N/A')}")
-#        print("\n")
-
-#if __name__ == "__main__":
-#    main()
+    except Exception as e:
+        _LOGGER.error(f"Error processing data for {station_name}: {e}")
+        return None

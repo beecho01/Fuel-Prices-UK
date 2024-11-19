@@ -1,0 +1,28 @@
+{
+  "title": "Prisiau Tanwydd y DU",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ffurfweddu Prisiau Tanwydd y DU",
+        "description": "Gosodwch integreiddiad Prisiau Tanwydd y DU. Dewiswch yr orsaf danwydd rydych am fonitro a'r cyfwng diweddaru.",
+        "data": {
+          "update_interval": "Cyfwng Diweddaru (eiliadau)",
+          "stations": "Dewiswch Orsaf Danwydd"
+        }
+      },
+      "station": {
+        "title": "Ffurfweddu Mathau o Danwydd ar gyfer {station_name}",
+        "description": "Dewiswch y mathau o danwydd rydych am eu monitro ar gyfer {station_name}.",
+        "data": {
+          "fuel_types": "Dewiswch Mathau o Danwydd"
+        }
+      }
+    },
+    "error": {
+      "invalid_update_interval": "Rhaid i'r cyfwng diweddaru fod yn o leiaf 60 eiliad.",
+      "no_station_selected": "Dewiswch o leiaf un orsaf danwydd.",
+      "no_fuel_type_selected": "Dewiswch o leiaf un math o danwydd.",
+      "station_not_found": "Ni chanfuwyd yr orsaf a ddewiswyd."
+    }
+  }
+}

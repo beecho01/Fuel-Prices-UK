@@ -1,9 +1,28 @@
 {
-  "title": "Material Symbols",
+  "title": "Fuel Prices UK",
   "config": {
-    "abort": {
-      "single_instance_allowed": "Only a single configuration of Material Symbols is allowed."
+    "step": {
+      "user": {
+        "title": "Configure Fuel Prices UK",
+        "description": "Set up the Fuel Prices UK integration. Please select the fuel stations you want to monitor and the update interval.",
+        "data": {
+          "update_interval": "Update Interval (seconds)",
+          "stations": "Select Fuel Stations"
+        }
+      },
+      "station": {
+        "title": "Configure Fuel Types for {station_name}",
+        "description": "Select the fuel types you want to monitor for {station_name}.",
+        "data": {
+          "fuel_types": "Select Fuel Types"
+        }
+      }
     },
-    "step": {}
+    "error": {
+      "invalid_update_interval": "Update interval must be at least 60 seconds.",
+      "no_station_selected": "Please select at least one fuel station.",
+      "no_fuel_type_selected": "Please select at least one fuel type.",
+      "station_not_found": "The selected station was not found."
+    }
   }
 }

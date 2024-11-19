@@ -1,9 +1,12 @@
 import requests
+import logging
+import json
 
 from geopy import distance
 from geopy.exc import GeocoderUnavailable
 from geopy.geocoders import Nominatim
 
+_LOGGER = logging.getLogger(__name__)
 
 def get_lat_lon(query):
     query = query.strip()
@@ -17,9 +20,9 @@ def get_lat_lon(query):
         return postcode_check
 
     if len(query) >= 2:
-        # location_check = is_location(query)
-        # if all(location_check):
-        #     return location_check
+        location_check = is_location(query)
+        if all(location_check):
+            return location_check
 
         geolocator = Nominatim(user_agent="UKFP")
         try:
@@ -90,46 +93,30 @@ def rank_local_type(local_type):
     }
     return priority.get(local_type, 999)
 
-
 def fetch_postcode_data(url):
     try:
         response = requests.get(url)
         response.raise_for_status()
         response_json = response.json()
-
         return response_json.get("result")
-
     except requests.exceptions.HTTPError as http_err:
         if response.status_code == 404:
-            print("Postcode - 404: Not Found")
+            _LOGGER.warning("Postcode - 404: Not Found")
         else:
-            print(f"Postcode - HTTP error occurred: {http_err}")
+            _LOGGER.error(f"Postcode - HTTP error occurred: {http_err}")
     except requests.exceptions.RequestException as req_err:
-        print(f"Postcode - Request error occurred: {req_err}")
-    except ValueError as json_err:
-        print(f"Postcode - JSON decoding error occurred: {json_err}")
-
+        _LOGGER.error(f"Postcode - Request error occurred: {req_err}")
+    except json.JSONDecodeError as json_err:
+        _LOGGER.error(f"Postcode - JSON decoding error occurred: {json_err}")
     return None
 
-
 def is_within_distance(user_location, station_location, radius=5, unit='mi'):
-    """
-    Determines if the station is within the specified radius from the user's location.
+    unit = unit.lower()
+    if unit not in ('km', 'mi'):
+        raise ValueError("Invalid unit. Please use 'km' or 'mi'.")
 
-    :param user_location: A dictionary with 'latitude' and 'longitude' keys for the user's location.
-    :param station_location: A dictionary with 'latitude' and 'longitude' keys for the station's location.
-    :param radius: The radius within which to search.
-    :param unit: The unit of measurement for the radius ('km' or 'mi').
-    :return: True if the station is within the radius, False otherwise.
-    """
     user_coords = (user_location["latitude"], user_location["longitude"])
     station_coords = (station_location["latitude"], station_location["longitude"])
-    
     calculated_distance = distance.distance(user_coords, station_coords)
-    
-    if unit == 'km':
-        return calculated_distance.km <= radius
-    elif unit == 'mi':
-        return calculated_distance.miles <= radius
-    else:
-        raise ValueError("Invalid unit. Please use 'km' or 'mi'.")
+
+    return (calculated_distance.km if unit == 'km' else calculated_distance.miles) <= radius

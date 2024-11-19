@@ -1,88 +1,128 @@
+"""The Fuel Prices UK integration."""
+import asyncio
 import logging
-import json
-from pathlib import Path
+from datetime import timedelta
 
-from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers.typing import ConfigType
-from uk_fuel_prices_api import UKFuelPricesApi
-from .utils import check_settings, FuelType, ComponentSession
+from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 
-manifestfile = Path(__file__).parent / 'manifest.json'
-with open(manifestfile, 'r') as json_file:
-    manifest_data = json.load(json_file)
+from .const import (
+    DOMAIN,
+    SCHEMA_VERSION,
+    CONF_UPDATE_INTERVAL,
+    CONF_STATIONS,
+    CONF_FUELTYPES,
+    NAME,
+    INTEGRATION_ID,
+    ENTRY_TITLE,
+)
+from .fetch_prices import get_all_prices
 
-DOMAIN = manifest_data.get("domain")
-NAME = manifest_data.get("name")
-VERSION = manifest_data.get("version")
-ISSUEURL = manifest_data.get("issue_tracker")
-PLATFORMS = [Platform.SENSOR]
+_LOGGER = logging.getLogger(__name__)
 
-LOGGER = logging.getLogger(__name__)
+PLATFORMS = ["sensor"]
 
-async def async_setup(hass: HomeAssistant, config: ConfigType):
-    """Set up this component using YAML."""
-    LOGGER.info(STARTUP)
-    if config.get(DOMAIN) is None:
-        return True
 
-    try:
-        await hass.config_entries.async_forward_entry(config, Platform.SENSOR)
-        LOGGER.info("Successfully added sensor from the integration")
-    except ValueError:
-        pass
-
-    await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_IMPORT}, data={}
-    )
+async def async_setup(hass: HomeAssistant, config: dict):
+    """Set up the Fuel Prices UK integration."""
+    # We don't support YAML-based configuration, so return True
+    hass.data.setdefault(DOMAIN, {})
     return True
 
-async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry):
-    unload_ok = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
-    # if unload_ok:
-        # hass.data[DOMAIN].pop(config_entry.entry_id)
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """Set up Fuel Prices UK from a config entry."""
+    _LOGGER.debug("Setting up config entry: %s", entry.entry_id)
+
+    update_interval = timedelta(seconds=entry.data[CONF_UPDATE_INTERVAL])
+
+    coordinator = FuelPricesDataUpdateCoordinator(
+        hass, entry=entry, update_interval=update_interval
+    )
+
+    await coordinator.async_config_entry_first_refresh()
+
+    if not coordinator.last_update_success:
+        raise ConfigEntryNotReady
+
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    # Use the updated method
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    return True
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """Unload a config entry."""
+    _LOGGER.debug("Unloading config entry: %s", entry.entry_id)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
 
-async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Set up component as config entry."""
-    await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
-    config_entry.async_on_unload(config_entry.add_update_listener(async_update_options))
-    LOGGER.info(f"{DOMAIN} register_services")
-    register_services(hass, config_entry)
-    return True
 
-async def async_remove_entry(hass, config_entry):
-    try:
-        await hass.config_entries.async_forward_entry_unload(config_entry, Platform.SENSOR)
-        LOGGER.info("Successfully removed sensor from the integration")
-    except ValueError:
-        pass
+class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator):
+    """Class to manage fetching data from the Fuel Prices UK sources."""
 
-def register_services(hass, config_entry):
-        
-    async def handle_get_lowest_fuel_price(call):
-        """Handle the service call."""
-        fuel_type = getattr(FuelType, call.data.get('fuel_type').upper(), None)
-        country = call.data.get('country')
-        postalcode = call.data.get('postalcode')
-        town = call.data.get('town','')
-        if town is None:
-            town = ""
-        max_distance = call.data.get('max_distance')
-        if max_distance is None:
-            max_distance = 0
-        filter = call.data.get('filter','')
-        if filter is None:
-            filter = ""        
-        
-        config = config_entry.data
-        GEO_API_KEY = config.get("GEO_API_KEY")
-        
-        session = ComponentSession(GEO_API_KEY)
-        station_info = await hass.async_add_executor_job(lambda: session.getStationInfo(postalcode, country, fuel_type, town, max_distance, filter, True))
-        
-        _LOGGER.debug(f"{NAME} get_lowest_fuel_price info found: {station_info}")
-        hass.bus.async_fire(f"{DOMAIN}_lowest_fuel_price", station_info)
+    def __init__(self, hass, entry: ConfigEntry, update_interval: timedelta):
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        self.stations = entry.data[CONF_STATIONS]
+        self.update_interval = update_interval
+        self._logger = _LOGGER
+
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=ENTRY_TITLE,
+            update_interval=update_interval,
+        )
+
+    async def _async_update_data(self):
+        """Fetch data from fuel price sources."""
+        try:
+            # Run the data fetching in an executor to avoid blocking the event loop
+            data = await self.hass.async_add_executor_job(self.fetch_data)
+            return data
+        except Exception as err:
+            raise UpdateFailed(f"Error fetching data: {err}") from err
+
+    def fetch_data(self):
+        """Fetch data synchronously."""
+        self._logger.debug("Fetching fuel price data...")
+        # Fetch all prices
+        all_prices = get_all_prices()
+
+        # You can process and filter the data here based on selected stations and fuel types
+        filtered_data = self.filter_data(all_prices)
+        return filtered_data
+
+    def filter_data(self, all_prices):
+        """Filter data based on user configuration."""
+        filtered_data = []
+        selected_stations = [station[NAME] for station in self.stations]
+
+        for retailer in all_prices:
+            if retailer["retailer"] in selected_stations:
+                # Find the station configuration
+                station_config = next(
+                    (s for s in self.stations if s[NAME] == retailer["retailer"]), None
+                )
+                if station_config:
+                    # Filter fuel types
+                    fuel_types = station_config[CONF_FUELTYPES]
+                    # Process data as needed
+                    retailer_data = {
+                        "retailer": retailer["retailer"],
+                        "data": retailer["data"],
+                        "fuel_types": fuel_types,
+                    }
+                    filtered_data.append(retailer_data)
+        return filtered_data
