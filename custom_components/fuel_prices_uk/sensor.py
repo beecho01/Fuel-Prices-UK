@@ -25,6 +25,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 ATTRIBUTION = "Data provided by UK Government Fuel Price API"
+from .price_parser import coerce_price
 
 
 def _base_attributes(fuel_type: str) -> Dict[str, Any]:
@@ -96,19 +97,9 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
                 continue
 
             price_entry = prices.get(self._fuel_type)
-            price_value: Optional[float] = None
-            if isinstance(price_entry, dict):
-                raw_value = price_entry.get("price") or price_entry.get("value")
-                if isinstance(raw_value, (int, float)):
-                    price_value = float(raw_value)
-            elif isinstance(price_entry, (int, float)):
-                price_value = float(price_entry)
-
+            price_value = coerce_price(price_entry)
             if price_value is None:
                 continue
-
-            if price_value > 100:
-                price_value = price_value / 100
 
             if cheapest_price is None or price_value < cheapest_price:
                 cheapest_price = price_value
@@ -170,9 +161,12 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
         station_prices = station.get("prices")
         if isinstance(station_prices, dict):
             prices = station_prices
+
         price_meta = prices.get(self._fuel_type)
-        if isinstance(price_meta, dict) and price_meta.get("last_updated"):
-            attributes[ATTR_LAST_UPDATED] = price_meta["last_updated"]
+        if isinstance(price_meta, dict):
+            last_updated = price_meta.get("last_updated") or price_meta.get("timestamp")
+            if last_updated:
+                attributes[ATTR_LAST_UPDATED] = last_updated
         elif station.get("last_updated"):
             attributes[ATTR_LAST_UPDATED] = station["last_updated"]
 
