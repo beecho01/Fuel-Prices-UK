@@ -3,26 +3,94 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configure Fuel Prices UK",
-        "description": "Set up the Fuel Prices UK integration. Please select the fuel stations you want to monitor and the update interval.",
+        "title": "Choose Location Method",
+        "description": "Choose how you want to specify your location.",
         "data": {
-          "update_interval": "Update Interval (seconds)",
-          "stations": "Select Fuel Stations"
+          "location_method": "Location Input Method"
         }
       },
-      "station": {
-        "title": "Configure Fuel Types for {station_name}",
-        "description": "Select the fuel types you want to monitor for {station_name}.",
+      "location_map": {
+        "title": "Configure Fuel Prices UK - Map",
+        "description": "Monitor fuel prices at stations near you. This integration uses official UK government fuel price data to find the cheapest prices within your specified radius.",
         "data": {
-          "fuel_types": "Select Fuel Types"
+          "update_interval": "Update Interval (seconds)",
+          "location": "Location",
+          "radius": "Search Radius (miles)",
+          "fuel_types": "Fuel Types to Monitor"
+        },
+        "data_description": {
+          "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
+          "location": "Your location for finding nearby fuel stations",
+          "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
+          "fuel_types": "Which fuel types to track prices for"
+        }
+      },
+      "location_address": {
+        "title": "Configure Fuel Prices UK - Address",
+        "description": "Enter a UK postcode, address, or location name. We'll find the coordinates for you.",
+        "data": {
+          "update_interval": "Update Interval (seconds)",
+          "address": "Postcode, Address, or Location",
+          "radius": "Search Radius (miles)",
+          "fuel_types": "Fuel Types to Monitor"
+        },
+        "data_description": {
+          "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
+          "address": "UK postcode (e.g. SW1A 1AA), full address, or location name",
+          "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
+          "fuel_types": "Which fuel types to track prices for"
         }
       }
     },
     "error": {
-      "invalid_update_interval": "Update interval must be at least 60 seconds.",
-      "no_station_selected": "Please select at least one fuel station.",
-      "no_fuel_type_selected": "Please select at least one fuel type.",
-      "station_not_found": "The selected station was not found."
+      "invalid_radius": "Radius must be between 0.5 and 31 miles",
+      "invalid_update_interval": "Update interval must be at least 300 seconds (5 minutes)",
+      "no_fuel_type_selected": "Please select at least one fuel type to monitor",
+      "invalid_address": "Could not find location. Please check your postcode/address and try again.",
+      "unknown": "An unexpected error occurred"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Choose Location Method",
+        "description": "Choose how you want to update your location.",
+        "data": {
+          "location_method": "Location Input Method"
+        }
+      },
+      "location_map": {
+        "title": "Update Options - Map",
+        "description": "Update your Fuel Prices UK settings",
+        "data": {
+          "update_interval": "Update Interval (seconds)",
+          "radius": "Search Radius (miles)",
+          "location": "Location",
+          "fuel_types": "Fuel Types to Monitor"
+        },
+        "data_description": {
+          "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
+          "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
+          "location": "Your location for finding nearby fuel stations",
+          "fuel_types": "Which fuel types to track prices for"
+        }
+      },
+      "location_address": {
+        "title": "Update Options - Address",
+        "description": "Update your Fuel Prices UK settings",
+        "data": {
+          "update_interval": "Update Interval (seconds)",
+          "radius": "Search Radius (miles)",
+          "address": "Postcode, Address, or Location",
+          "fuel_types": "Fuel Types to Monitor"
+        },
+        "data_description": {
+          "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
+          "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
+          "address": "UK postcode (e.g. SW1A 1AA), full address, or location name",
+          "fuel_types": "Which fuel types to track prices for"
+        }
+      }
     }
   }
 }

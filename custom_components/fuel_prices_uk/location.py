@@ -1,6 +1,7 @@
-import requests
-import logging
+"""Location utilities for geocoding and coordinate validation."""
 import json
+import logging
+import requests
 
 from geopy import distance
 from geopy.exc import GeocoderUnavailable
@@ -26,13 +27,13 @@ def get_lat_lon(query):
 
         geolocator = Nominatim(user_agent="UKFP")
         try:
-            location = geolocator.geocode(query, country_codes="GB")
+            location = geolocator.geocode(query, country_codes="GB")  # type: ignore[misc]
         except GeocoderUnavailable as geocode_err:
-            print(f"Geocoder service unavailable: {geocode_err}")
+            _LOGGER.warning("Geocoder service unavailable: %s", geocode_err)
             return None, None
 
         if location:
-            return location.latitude, location.longitude
+            return location.latitude, location.longitude  # type: ignore[union-attr]
         else:
             return None, None
     return None, None
@@ -94,20 +95,21 @@ def rank_local_type(local_type):
     return priority.get(local_type, 999)
 
 def fetch_postcode_data(url):
+    response = None
     try:
         response = requests.get(url)
         response.raise_for_status()
         response_json = response.json()
         return response_json.get("result")
     except requests.exceptions.HTTPError as http_err:
-        if response.status_code == 404:
+        if response and response.status_code == 404:
             _LOGGER.warning("Postcode - 404: Not Found")
         else:
-            _LOGGER.error(f"Postcode - HTTP error occurred: {http_err}")
+            _LOGGER.error("Postcode - HTTP error occurred: %s", http_err)
     except requests.exceptions.RequestException as req_err:
-        _LOGGER.error(f"Postcode - Request error occurred: {req_err}")
+        _LOGGER.error("Postcode - Request error occurred: %s", req_err)
     except json.JSONDecodeError as json_err:
-        _LOGGER.error(f"Postcode - JSON decoding error occurred: {json_err}")
+        _LOGGER.error("Postcode - JSON decoding error occurred: %s", json_err)
     return None
 
 def is_within_distance(user_location, station_location, radius=5, unit='mi'):

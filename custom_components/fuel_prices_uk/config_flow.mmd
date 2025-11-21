@@ -1,0 +1,32 @@
+flowchart-elk LR
+    A(["Start Config Flow"]) --> B{"User Configuration: Select an Option"}
+    H["Create Sensor/Sensors"] --> J(["End Config Flow"])
+    B -- Identify Stations within a Radius --> C["Step: Radius Configuration"]
+    B -- Select a Specific Station --> D["Step: Specific Station Selection"]
+    C -- Invalid radius --> F["Error: Invalid Radius"]
+    F --> C
+    C -- Valid radius --> E["Step: Station Configuration"]
+    D -- No station --> G["Error: No Station"]
+    G --> D
+    D -- Valid station --> E
+    E -- Valid configuration --> H
+    E -- Invalid configuration --> I["Error: No Valid Output"]
+    I -- Retry --> B
+    I -- Abort --> J
+    C@{ shape: rounded}
+    D@{ shape: rounded}
+    F@{ shape: rounded}
+    E@{ shape: rounded}
+     A:::process
+     B:::process
+     H:::success
+     J:::process
+     C:::process
+     D:::process
+     F:::error
+     E:::process
+     G:::error
+     I:::error
+    classDef error fill:#FFCDD2,stroke:#E57373,stroke-width:2px
+    classDef success fill:#C8E6C9,stroke:#81C784,stroke-width:2px
+    classDef process fill:#BBDEFB,stroke:#64B5F6,stroke-width:2px

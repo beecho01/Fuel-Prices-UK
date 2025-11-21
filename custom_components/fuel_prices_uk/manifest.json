@@ -7,6 +7,6 @@
     "documentation": "https://github.com/beecho01/Fuel-Prices-UK",
     "iot_class": "cloud_polling",
     "issue_tracker": "https://github.com/beecho01/Fuel-Prices-UK/issues",
-    "requirements": ["requests>=2.25.1", "geopy>=2.2.0"],
-    "version": "2024.11.18"
+    "requirements": ["uk-fuel-prices-api>=0.0.5", "geopy>=2.2.0"],
+    "version": "2025.11.21b5"
 }

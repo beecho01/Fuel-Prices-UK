@@ -1,10 +1,12 @@
+"""Config flow for Fuel Prices UK integration."""
 import logging
-import uuid
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigEntry, ConfigFlowResult, OptionsFlowWithConfigEntry
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.selector import selector
 import homeassistant.helpers.config_validation as cv
 
 from .const import (
@@ -13,100 +15,69 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     CONF_STATIONS,
     CONF_FUELTYPES,
-    INTEGRATION_ID,
+    CONF_LOCATION,
+    CONF_LOCATION_METHOD,
+    CONF_ADDRESS,
+    CONF_RADIUS,
+    CONF_SEARCH_METHOD,
+    CONF_SITE_ID,
     ENTRY_TITLE,
     NAME,
-    PLACEHOLDER_KEY_STATION_NAME,
-    DATA_STATIONS_NAME,
-    DATA_APPLEGREEN_FUEL_TYPES,
-    DATA_ASCONA_GROUP_FUEL_TYPES,
-    DATA_ASDA_FUEL_TYPES,
-    DATA_BP_FUEL_TYPES,
-    DATA_ESSO_TESCO_ALLIANCE_FUEL_TYPES,
-    DATA_JET_FUEL_TYPES,
-    DATA_KARAN_FUEL_TYPES,
-    DATA_MORRISONS_FUEL_TYPES,
-    DATA_MOTO_FUEL_TYPES,
-    DATA_MOTOR_FUEL_GROUP_FUEL_TYPES,
-    DATA_RONTEC_FUEL_TYPES,
-    DATA_SAINSBURYS_FUEL_TYPES,
-    DATA_SGN_FUEL_TYPES,
-    DATA_SHELL_FUEL_TYPES,
-    DATA_TESCO_FUEL_TYPES,
-    DATA_STATION_APPLEGREEN,
-    DATA_STATION_ASCONA_GROUP,
-    DATA_STATION_ASDA,
-    DATA_STATION_BP,
-    DATA_STATION_ESSO_TESCO_ALLIANCE,
-    DATA_STATION_JET,
-    DATA_STATION_KARAN,
-    DATA_STATION_MORRISONS,
-    DATA_STATION_MOTO,
-    DATA_STATION_MOTOR_FUEL_GROUP,
-    DATA_STATION_RONTEC,
-    DATA_STATION_SAINSBURYS,
-    DATA_STATION_SGN,
-    DATA_STATION_SHELL,
-    DATA_STATION_TESCO,
+    FUEL_TYPES,
+    DEFAULT_UPDATE_INTERVAL,
+    MILES_TO_KM,
+    KM_TO_MILES,
 )
+from .fetch_prices import UKFuelPricesClient
+from .location import get_lat_lon
 
 _LOGGER = logging.getLogger(__name__)
 
-async def validate_input_user(data: dict):
-    """Validate input [STEP: user]."""
-    if data[CONF_UPDATE_INTERVAL] < 60:
-        raise InvalidUpdateInterval
-    if len(data[CONF_STATIONS]) < 1:
-        raise NoStationSelected
-    return data
 
-async def validate_input_station(data: dict):
-    """Validate input [STEP: station]."""
-    if len(data[CONF_FUELTYPES]) < 1:
-        raise NoFuelTypeSelected
-    return data
-
-def main_config_schema(user_input=None):
+def main_config_schema(user_input=None, hass=None):
     """Define the schema for the main configuration step."""
     if user_input is None:
         user_input = {}
 
-    return vol.Schema({
-        vol.Required(CONF_UPDATE_INTERVAL, default=user_input.get(CONF_UPDATE_INTERVAL, 60)): vol.All(vol.Coerce(int), vol.Range(min=60)),
-        vol.Required(CONF_STATIONS, default=user_input.get(CONF_STATIONS, [])): cv.multi_select(DATA_STATIONS_NAME),
-    })
-
-def station_config_schema(station_name, user_input=None):
-    """Define the schema for configuring each station."""
-    if user_input is None:
-        user_input = {}
-
-    station_fuel_types = get_station_fuel_types(station_name)
-
-    return vol.Schema({
-        vol.Required(CONF_FUELTYPES, default=user_input.get(CONF_FUELTYPES, [])): cv.multi_select(station_fuel_types),
-    })
-
-def get_station_fuel_types(station_name):
-    """Get the available fuel types for a given station."""
-    station_fuel_types = {
-        DATA_STATION_APPLEGREEN: [fuel['name'] for fuel in DATA_APPLEGREEN_FUEL_TYPES],
-        DATA_STATION_ASCONA_GROUP: [fuel['name'] for fuel in DATA_ASCONA_GROUP_FUEL_TYPES],
-        DATA_STATION_ASDA: [fuel['name'] for fuel in DATA_ASDA_FUEL_TYPES],
-        DATA_STATION_BP: [fuel['name'] for fuel in DATA_BP_FUEL_TYPES],
-        DATA_STATION_ESSO_TESCO_ALLIANCE: [fuel['name'] for fuel in DATA_ESSO_TESCO_ALLIANCE_FUEL_TYPES],
-        DATA_STATION_JET: [fuel['name'] for fuel in DATA_JET_FUEL_TYPES],
-        DATA_STATION_KARAN: [fuel['name'] for fuel in DATA_KARAN_FUEL_TYPES],
-        DATA_STATION_MORRISONS: [fuel['name'] for fuel in DATA_MORRISONS_FUEL_TYPES],
-        DATA_STATION_MOTO: [fuel['name'] for fuel in DATA_MOTO_FUEL_TYPES],
-        DATA_STATION_MOTOR_FUEL_GROUP: [fuel['name'] for fuel in DATA_MOTOR_FUEL_GROUP_FUEL_TYPES],
-        DATA_STATION_RONTEC: [fuel['name'] for fuel in DATA_RONTEC_FUEL_TYPES],
-        DATA_STATION_SAINSBURYS: [fuel['name'] for fuel in DATA_SAINSBURYS_FUEL_TYPES],
-        DATA_STATION_SGN: [fuel['name'] for fuel in DATA_SGN_FUEL_TYPES],
-        DATA_STATION_SHELL: [fuel['name'] for fuel in DATA_SHELL_FUEL_TYPES],
-        DATA_STATION_TESCO: [fuel['name'] for fuel in DATA_TESCO_FUEL_TYPES],
+    # Use Home Assistant's location if available
+    default_location = {
+        "latitude": hass.config.latitude if hass and hass.config.latitude else 51.509865,
+        "longitude": hass.config.longitude if hass and hass.config.longitude else -0.118092,
     }
-    return station_fuel_types.get(station_name, [])
+    
+    # Get current radius in miles (stored value is in km, convert for display)
+    radius_km = user_input.get(CONF_RADIUS, 5)  # This is in km internally
+    radius_miles = round(radius_km * KM_TO_MILES, 1) if CONF_RADIUS in user_input else 3.0
+    
+    # Convert radius to meters for the location selector (it uses meters)
+    radius_meters = int(radius_km * 1000)
+
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_UPDATE_INTERVAL,
+                default=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+            ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),  # 5 minutes to 24 hours
+            vol.Required(
+                CONF_RADIUS, 
+                default=radius_miles
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),  # 0.5 to 31 miles (roughly 1-50 km)
+            vol.Required(
+                CONF_LOCATION,
+                default=user_input.get(CONF_LOCATION, default_location),
+            ): selector({
+                "location": {
+                    "radius": radius_meters,
+                    "icon": "mdi:gas-station"
+                }
+            }),
+            vol.Required(
+                CONF_FUELTYPES,
+                default=user_input.get(CONF_FUELTYPES, ["E10", "B7"]),
+            ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+        }
+    )
+
 
 class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for Fuel Prices UK."""
@@ -118,109 +89,395 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize."""
         self._errors = {}
         self._data = {}
-        self._current_station_index = 0
-        self._stations = []
+        self._location_method = None
 
-    async def async_step_user(self, user_input=None):
-        """Handle a flow initialized by the user."""
-        _LOGGER.debug("[config_flow][step_user] Started")
+    async def async_step_user(self, user_input=None):  # type: ignore[override]
+        """Handle the initial step - choose location input method."""
+        _LOGGER.debug("[config_flow][step_user] Started - choosing location method")
+        
+        if user_input is not None:
+            self._location_method = user_input[CONF_LOCATION_METHOD]
+            _LOGGER.debug("[config_flow][step_user] Selected method: %s", self._location_method)
+            
+            if self._location_method == "map":
+                return await self.async_step_location_map()
+            else:
+                return await self.async_step_location_address()
+        
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema({
+                vol.Required(CONF_LOCATION_METHOD, default="map"): vol.In({
+                    "map": "Map (select on map)",
+                    "address": "Address or Postcode (text input)"
+                })
+            }),
+            description_placeholders={
+                "info": "Choose how you want to specify your location."
+            },
+        )
+
+    async def async_step_location_map(self, user_input=None):
+        """Handle map-based location input."""
+        _LOGGER.debug("[config_flow][step_location_map] Started")
         self._errors = {}
-        self._data = {}
 
         if user_input is None:
-            _LOGGER.debug("[config_flow][step_user] No user input")
             return self.async_show_form(
-                step_id="user",
-                data_schema=main_config_schema(),
+                step_id="location_map",
+                data_schema=main_config_schema(hass=self.hass),
+                description_placeholders={
+                    "info": "Configure your fuel price monitoring. Stations within the specified radius of your location will be monitored."
+                },
             )
 
         try:
-            user_input = await validate_input_user(user_input)
+            # Validate inputs
+            if user_input[CONF_UPDATE_INTERVAL] < 300:
+                raise InvalidUpdateInterval("Update interval must be at least 5 minutes")
+            
+            if user_input[CONF_RADIUS] <= 0:
+                raise InvalidRadius("Radius must be greater than 0")
+            
+            if not user_input.get(CONF_FUELTYPES):
+                raise NoFuelTypeSelected("At least one fuel type must be selected")
+
+            # Convert radius from miles to km for storage
+            radius_miles = user_input[CONF_RADIUS]
+            radius_km = round(radius_miles * MILES_TO_KM, 1)
+
+            # Store the configuration (radius stored in km for API)
+            self._data = {
+                CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
+                CONF_LOCATION: user_input[CONF_LOCATION],
+                CONF_LOCATION_METHOD: "map",
+                CONF_RADIUS: radius_km,  # Store in km
+                CONF_FUELTYPES: user_input[CONF_FUELTYPES],
+                CONF_STATIONS: [],  # Will be populated with actual stations during runtime
+            }
+
+            # Create a descriptive title (show in miles)
+            location = user_input[CONF_LOCATION]
+            title = f"{ENTRY_TITLE} - {radius_miles}mi radius"
+            
+            return self.async_create_entry(title=title, data=self._data)
+
         except InvalidUpdateInterval:
             self._errors[CONF_UPDATE_INTERVAL] = "invalid_update_interval"
-            _LOGGER.debug("[config_flow][step_user] Invalid update interval")
-            return self.async_show_form(
-                step_id="user",
-                data_schema=main_config_schema(user_input),
-                errors=self._errors,
-            )
-        except NoStationSelected:
-            self._errors[CONF_STATIONS] = "no_station_selected"
-            _LOGGER.debug("[config_flow][step_user] No station selected")
-            return self.async_show_form(
-                step_id="user",
-                data_schema=main_config_schema(user_input),
-                errors=self._errors,
-            )
-
-        integration_id = str(uuid.uuid4())
-        await self.async_set_unique_id(integration_id)
-        self._data[INTEGRATION_ID] = integration_id
-        self._data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
-        self._stations = user_input[CONF_STATIONS]
-        self._data[CONF_STATIONS] = [{NAME: name, CONF_FUELTYPES: []} for name in self._stations]
-        self._current_station_index = 0
-
-        return await self.async_step_station()
-
-    async def async_step_station(self, user_input=None):
-        """Station configuration step."""
-        _LOGGER.debug("[config_flow][step_station] Started")
-        self._errors = {}
-        last_step = self.check_last_step()
-        current_station = self.get_current_station()
-        placeholders = {PLACEHOLDER_KEY_STATION_NAME: current_station}
-
-        if user_input is not None:
-            try:
-                user_input = await validate_input_station(user_input)
-            except NoFuelTypeSelected:
-                self._errors[CONF_FUELTYPES] = "no_fuel_type_selected"
-                _LOGGER.debug("[config_flow][step_station] No fuel type selected")
-                return self.async_show_form(
-                    step_id="station",
-                    data_schema=station_config_schema(current_station, user_input),
-                    errors=self._errors,
-                    description_placeholders=placeholders,
-                )
-            station_index = self.get_station_index(current_station)
-            self._data[CONF_STATIONS][station_index][CONF_FUELTYPES] = user_input[CONF_FUELTYPES]
-
-            if not last_step:
-                self._current_station_index += 1
-                return await self.async_step_station()
-
-            entry_result = self.async_create_entry(title=ENTRY_TITLE, data=self._data)
-            _LOGGER.debug("[config_flow][step_station] Entry created.")
-            return entry_result
+        except InvalidRadius:
+            self._errors[CONF_RADIUS] = "invalid_radius"
+        except NoFuelTypeSelected:
+            self._errors[CONF_FUELTYPES] = "no_fuel_type_selected"
+        except Exception as e:
+            _LOGGER.exception("Unexpected error during user step: %s", e)
+            self._errors["base"] = "unknown"
 
         return self.async_show_form(
-            step_id="station",
-            data_schema=station_config_schema(current_station),
+            step_id="location_map",
+            data_schema=main_config_schema(user_input, hass=self.hass),
             errors=self._errors,
-            description_placeholders=placeholders,
         )
 
-    def check_last_step(self):
-        """Check if this is the last step."""
-        return self._current_station_index >= len(self._stations) - 1
+    async def async_step_location_address(self, user_input=None):
+        """Handle address/postcode-based location input."""
+        _LOGGER.debug("[config_flow][step_location_address] Started")
+        self._errors = {}
 
-    def get_current_station(self):
-        """Get the current station being configured."""
-        return self._stations[self._current_station_index]
+        if user_input is None:
+            # Get default radius (3 miles)
+            default_radius = 3.0
+            
+            return self.async_show_form(
+                step_id="location_address",
+                data_schema=vol.Schema({
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL,
+                        default=DEFAULT_UPDATE_INTERVAL,
+                    ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                    vol.Required(
+                        CONF_RADIUS,
+                        default=default_radius
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
+                    vol.Required(CONF_ADDRESS): cv.string,
+                    vol.Required(
+                        CONF_FUELTYPES,
+                        default=["E10", "B7"],
+                    ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                }),
+                description_placeholders={
+                    "info": "Enter a UK postcode, address, or location name. We'll find the coordinates for you."
+                },
+            )
 
-    def get_station_index(self, station_name):
-        """Get the index of the station in the data list."""
-        for index, station in enumerate(self._data[CONF_STATIONS]):
-            if station[NAME] == station_name:
-                return index
-        return None
+        try:
+            # Validate inputs
+            if user_input[CONF_UPDATE_INTERVAL] < 300:
+                raise InvalidUpdateInterval("Update interval must be at least 5 minutes")
+            
+            if user_input[CONF_RADIUS] <= 0:
+                raise InvalidRadius("Radius must be greater than 0")
+            
+            if not user_input.get(CONF_FUELTYPES):
+                raise NoFuelTypeSelected("At least one fuel type must be selected")
+
+            # Convert address/postcode to coordinates
+            address = user_input[CONF_ADDRESS]
+            _LOGGER.debug("[config_flow][step_location_address] Looking up: %s", address)
+            
+            lat, lon = await self.hass.async_add_executor_job(get_lat_lon, address)
+            
+            if lat is None or lon is None:
+                _LOGGER.warning("[config_flow][step_location_address] Could not find location for: %s", address)
+                raise InvalidAddress("Could not find location. Please check your postcode/address and try again.")
+            
+            _LOGGER.info("[config_flow][step_location_address] Found coordinates: %s, %s for '%s'", lat, lon, address)
+
+            # Convert radius from miles to km for storage
+            radius_miles = user_input[CONF_RADIUS]
+            radius_km = round(radius_miles * MILES_TO_KM, 1)
+
+            # Store the configuration (radius stored in km for API)
+            self._data = {
+                CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
+                CONF_LOCATION: {
+                    "latitude": lat,
+                    "longitude": lon,
+                },
+                CONF_LOCATION_METHOD: "address",
+                CONF_ADDRESS: address,  # Store original address for reference
+                CONF_RADIUS: radius_km,  # Store in km
+                CONF_FUELTYPES: user_input[CONF_FUELTYPES],
+                CONF_STATIONS: [],  # Will be populated with actual stations during runtime
+            }
+
+            # Create a descriptive title (show in miles and address)
+            title = f"{ENTRY_TITLE} - {address[:20]} - {radius_miles}mi"
+            
+            return self.async_create_entry(title=title, data=self._data)
+
+        except InvalidUpdateInterval:
+            self._errors[CONF_UPDATE_INTERVAL] = "invalid_update_interval"
+        except InvalidRadius:
+            self._errors[CONF_RADIUS] = "invalid_radius"
+        except NoFuelTypeSelected:
+            self._errors[CONF_FUELTYPES] = "no_fuel_type_selected"
+        except InvalidAddress:
+            self._errors[CONF_ADDRESS] = "invalid_address"
+        except Exception as e:
+            _LOGGER.exception("Unexpected error during address lookup: %s", e)
+            self._errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="location_address",
+            data_schema=vol.Schema({
+                vol.Required(
+                    CONF_UPDATE_INTERVAL,
+                    default=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                vol.Required(
+                    CONF_RADIUS,
+                    default=user_input.get(CONF_RADIUS, 3.0)
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
+                vol.Required(CONF_ADDRESS, default=user_input.get(CONF_ADDRESS, "")): cv.string,
+                vol.Required(
+                    CONF_FUELTYPES,
+                    default=user_input.get(CONF_FUELTYPES, ["E10", "B7"]),
+                ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+            }),
+            errors=self._errors,
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> "OptionsFlowHandler":
+        """Get the options flow for this handler."""
+        return OptionsFlowHandler()
+
+
+class OptionsFlowHandler(OptionsFlowWithConfigEntry):
+    """Handle options flow for Fuel Prices UK."""
+
+    def __init__(self) -> None:
+        """Initialize options flow."""
+        self._errors = {}
+
+    async def async_step_init(self, user_input=None) -> ConfigFlowResult:
+        """Manage the options - choose location method."""
+        # Get current location method (default to map if not set for backwards compatibility)
+        current_method = self.config_entry.data.get(CONF_LOCATION_METHOD, "map")
+        
+        if user_input is not None:
+            if user_input[CONF_LOCATION_METHOD] == "map":
+                return await self.async_step_location_map()
+            else:
+                return await self.async_step_location_address()
+        
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({
+                vol.Required(CONF_LOCATION_METHOD, default=current_method): vol.In({
+                    "map": "Map (select on map)",
+                    "address": "Address or Postcode (text input)"
+                })
+            }),
+            description_placeholders={
+                "info": "Choose how you want to update your location."
+            },
+        )
+
+    async def async_step_location_map(self, user_input=None) -> ConfigFlowResult:
+        """Handle map-based location options."""
+        if user_input is not None:
+            # Convert radius from miles to km before saving
+            radius_miles = user_input[CONF_RADIUS]
+            radius_km = round(radius_miles * MILES_TO_KM, 1)
+            
+            # Preserve existing data and update with new values
+            updated_data = dict(self.config_entry.data)
+            updated_data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
+            updated_data[CONF_LOCATION] = user_input[CONF_LOCATION]
+            updated_data[CONF_LOCATION_METHOD] = "map"
+            updated_data[CONF_RADIUS] = radius_km
+            updated_data[CONF_FUELTYPES] = user_input[CONF_FUELTYPES]
+            
+            # Remove address if it was set before
+            if CONF_ADDRESS in updated_data:
+                del updated_data[CONF_ADDRESS]
+            
+            return self.async_create_entry(title="", data=updated_data)
+        
+        # Get current radius in miles (stored in km, convert for display)
+        radius_km = self.config_entry.data.get(CONF_RADIUS, 5)
+        radius_miles = round(radius_km * KM_TO_MILES, 1)
+        radius_meters = int(radius_km * 1000)
+
+        return self.async_show_form(
+            step_id="location_map",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL,
+                        default=self.config_entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                    vol.Required(
+                        CONF_RADIUS,
+                        default=radius_miles,
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),  # 0.5 to 31 miles
+                    vol.Required(
+                        CONF_LOCATION,
+                        default=self.config_entry.data.get(CONF_LOCATION),
+                    ): selector({
+                        "location": {
+                            "radius": radius_meters,
+                            "icon": "mdi:gas-station"
+                        }
+                    }),
+                    vol.Required(
+                        CONF_FUELTYPES,
+                        default=self.config_entry.data.get(CONF_FUELTYPES, ["E10", "B7"]),
+                    ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                }
+            ),
+        )
+
+    async def async_step_location_address(self, user_input=None) -> ConfigFlowResult:
+        """Handle address/postcode-based location options."""
+        self._errors = {}
+        
+        if user_input is not None:
+            try:
+                # Validate inputs
+                if user_input[CONF_UPDATE_INTERVAL] < 300:
+                    raise InvalidUpdateInterval("Update interval must be at least 5 minutes")
+                
+                if user_input[CONF_RADIUS] <= 0:
+                    raise InvalidRadius("Radius must be greater than 0")
+                
+                if not user_input.get(CONF_FUELTYPES):
+                    raise NoFuelTypeSelected("At least one fuel type must be selected")
+
+                # Convert address/postcode to coordinates
+                address = user_input[CONF_ADDRESS]
+                _LOGGER.debug("[options_flow][step_location_address] Looking up: %s", address)
+                
+                lat, lon = await self.hass.async_add_executor_job(get_lat_lon, address)
+                
+                if lat is None or lon is None:
+                    _LOGGER.warning("[options_flow][step_location_address] Could not find location for: %s", address)
+                    raise InvalidAddress("Could not find location. Please check your postcode/address and try again.")
+                
+                _LOGGER.info("[options_flow][step_location_address] Found coordinates: %s, %s for '%s'", lat, lon, address)
+
+                # Convert radius from miles to km for storage
+                radius_miles = user_input[CONF_RADIUS]
+                radius_km = round(radius_miles * MILES_TO_KM, 1)
+
+                # Preserve existing data and update with new values
+                updated_data = dict(self.config_entry.data)
+                updated_data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
+                updated_data[CONF_LOCATION] = {
+                    "latitude": lat,
+                    "longitude": lon,
+                }
+                updated_data[CONF_LOCATION_METHOD] = "address"
+                updated_data[CONF_ADDRESS] = address
+                updated_data[CONF_RADIUS] = radius_km
+                updated_data[CONF_FUELTYPES] = user_input[CONF_FUELTYPES]
+                
+                return self.async_create_entry(title="", data=updated_data)
+
+            except InvalidUpdateInterval:
+                self._errors[CONF_UPDATE_INTERVAL] = "invalid_update_interval"
+            except InvalidRadius:
+                self._errors[CONF_RADIUS] = "invalid_radius"
+            except NoFuelTypeSelected:
+                self._errors[CONF_FUELTYPES] = "no_fuel_type_selected"
+            except InvalidAddress:
+                self._errors[CONF_ADDRESS] = "invalid_address"
+            except Exception as e:
+                _LOGGER.exception("Unexpected error during address lookup in options: %s", e)
+                self._errors["base"] = "unknown"
+        
+        # Get current values
+        radius_km = self.config_entry.data.get(CONF_RADIUS, 5)
+        radius_miles = round(radius_km * KM_TO_MILES, 1)
+        current_address = self.config_entry.data.get(CONF_ADDRESS, "")
+
+        return self.async_show_form(
+            step_id="location_address",
+            data_schema=vol.Schema({
+                vol.Required(
+                    CONF_UPDATE_INTERVAL,
+                    default=user_input.get(CONF_UPDATE_INTERVAL, self.config_entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)) if user_input else self.config_entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                vol.Required(
+                    CONF_RADIUS,
+                    default=user_input.get(CONF_RADIUS, radius_miles) if user_input else radius_miles
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
+                vol.Required(
+                    CONF_ADDRESS,
+                    default=user_input.get(CONF_ADDRESS, current_address) if user_input else current_address
+                ): cv.string,
+                vol.Required(
+                    CONF_FUELTYPES,
+                    default=user_input.get(CONF_FUELTYPES, self.config_entry.data.get(CONF_FUELTYPES, ["E10", "B7"])) if user_input else self.config_entry.data.get(CONF_FUELTYPES, ["E10", "B7"]),
+                ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+            }),
+            errors=self._errors,
+        )
+
+
+class InvalidRadius(HomeAssistantError):
+    """Error to indicate an invalid radius."""
+
 
 class InvalidUpdateInterval(HomeAssistantError):
     """Error to indicate the update interval is invalid."""
 
-class NoStationSelected(HomeAssistantError):
-    """Error to indicate no station was selected."""
 
 class NoFuelTypeSelected(HomeAssistantError):
     """Error to indicate no fuel type was selected."""
+
+
+class InvalidAddress(HomeAssistantError):
+    """Error to indicate an invalid address or postcode."""
