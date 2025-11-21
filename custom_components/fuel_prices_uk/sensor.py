@@ -84,7 +84,7 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
             self._attr_extra_state_attributes = _base_attributes(self._fuel_type)
             self._attr_available = False
             _LOGGER.debug(
-                "[sensor][%s] Coordinator payload was not list-like (type=%s); marking unavailable",
+                "[sensor][%s] Coordinator payload type %s is not list-like; sensor unavailable",
                 self._fuel_type,
                 type(self.coordinator.data).__name__,
             )
@@ -123,7 +123,7 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
         if cheapest_price is None:
             if total_stations == 0:
                 _LOGGER.warning(
-                    "[sensor][%s] Coordinator returned no stations; sensor remains unknown",
+                    "[sensor][%s] Coordinator returned no stations; sensor state remains unknown",
                     self._fuel_type,
                 )
             elif price_matches == 0:
@@ -136,18 +136,19 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
                 )
             else:
                 _LOGGER.debug(
-                    "[sensor][%s] Coordinator updated but could not determine cheapest price (matches=%s)",
+                    "[sensor][%s] Coordinator updated; price comparisons made=%s but no cheapest result",
                     self._fuel_type,
                     price_matches,
                 )
         else:
             _LOGGER.debug(
-                "[sensor][%s] Cheapest price resolved to %.3f from %s (stations=%s, candidates=%s)",
+                "[sensor][%s] Cheapest price=%.3f from station=%s (stations=%s candidates=%s matches=%s)",
                 self._fuel_type,
                 cheapest_price,
                 self._station_data.get("site_id") if self._station_data else "<unknown>",
                 total_stations,
                 price_candidates,
+                price_matches,
             )
 
     def _rebuild_attributes(self) -> None:
