@@ -2,5 +2,8 @@
   "name": "Fuel Prices UK",
   "content_in_root": false,
   "render_readme": true,
-  "zip_release": false
+  "zip_release": false,
+  "domains": ["fuel_prices_uk"],
+  "country": "GB",
+  "homeassistant": "2024.6.0"
 }
