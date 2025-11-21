@@ -28,7 +28,6 @@ from .const import (
     MILES_TO_KM,
     KM_TO_MILES,
 )
-from .fetch_prices import UKFuelPricesClient
 from .location import get_lat_lon
 
 _LOGGER = logging.getLogger(__name__)
@@ -291,14 +290,15 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> "OptionsFlowHandler":
         """Get the options flow for this handler."""
-        return OptionsFlowHandler()
+        return OptionsFlowHandler(config_entry)
 
 
 class OptionsFlowHandler(OptionsFlowWithConfigEntry):
     """Handle options flow for Fuel Prices UK."""
 
-    def __init__(self) -> None:
+    def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize options flow."""
+        super().__init__(config_entry)
         self._errors = {}
 
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
