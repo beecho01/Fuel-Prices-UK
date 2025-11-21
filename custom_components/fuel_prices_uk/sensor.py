@@ -76,6 +76,12 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
         self._attr_native_value = None
         self._attr_available = False
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if self.coordinator.data is not None:
+            self._refresh_snapshot()
+            self.async_write_ha_state()
+
     def _refresh_snapshot(self) -> None:
         data = self.coordinator.data or []
         if not isinstance(data, list):
