@@ -24,18 +24,22 @@ A Home Assistant custom integration that monitors fuel prices at UK petrol stati
 
 ## Supported Retailers
 
-The integration automatically fetches data from all UK fuel retailers participating in the government scheme, including:
+We query every retailer feed currently listed on the UK Government's [fuel price transparency scheme](https://www.gov.uk/guidance/access-fuel-price-data) (last checked 15 July 2025):
 
+- Ascona Group
 - Asda
-- BP
-- Esso
+- bp
+- Esso Tesco Alliance
+- JET Retail UK
+- Karan Retail Ltd
 - Morrisons
+- Moto
+- Motor Fuel Group
+- Rontec
 - Sainsbury's
+- SGN
 - Shell
 - Tesco
-- Jet
-- Motor Fuel Group
-- And many more!
 
 ## Installation
 
@@ -160,13 +164,13 @@ cards:
 
 ## How It Works
 
-This integration uses the [uk-fuel-prices-api](https://pypi.org/project/uk-fuel-prices-api/) Python library, which fetches data from the official UK Government fuel price data feeds. 
+This integration ships with a lightweight async client (see `custom_components/fuel_prices_uk/api_client.py`) that talks directly to the official Home Office endpoints without external dependencies.
 
 As mandated by the UK Government, major fuel retailers publish their prices in an open data format, making this information freely available. The integration:
 
-1. Downloads price data from all participating retailers
-2. Filters stations within your specified radius
-3. Sorts by price for each fuel type
+1. Downloads price data from each participating retailer feed
+2. Filters stations within your specified radius (or by Site ID)
+3. Sorts by price for each selected fuel type
 4. Creates sensors showing the cheapest options
 
 ## Data Update Frequency
@@ -199,6 +203,11 @@ Note: Most retailers update their prices once per day, typically overnight.
 - Try reinstalling the integration
 - Restart Home Assistant
 
+## Development & Verification
+
+- Run `python scripts/check_api_client.py` to perform a quick end-to-end test of the bundled API client. The script prints how many stations were retrieved plus a sample entry so you can confirm the government data feeds are reachable from your environment.
+- The lightweight client that ships with this integration (see `custom_components/fuel_prices_uk/api_client.py`) talks directly to the official UK Government endpoints and keeps attribution to the upstream [`uk-fuel-prices-api`](https://github.com/gaco79/uk_fuel_prices_api) project (LGPL-3.0).
+
 ## Known Limitations
 
 - Data quality depends on retailer participation in the government scheme
@@ -217,6 +226,8 @@ For issues, feature requests, or questions:
 This integration uses official data provided under the UK Government's fuel price transparency scheme:
 - [UK Government Fuel Price Data](https://www.gov.uk/guidance/access-fuel-price-data)
 - [uk-fuel-prices-api PyPI Package](https://pypi.org/project/uk-fuel-prices-api/)
+
+Additional credit: portions of the in-repo API client were inspired by the open-source [`uk-fuel-prices-api`](https://github.com/gaco79/uk_fuel_prices_api) project (LGPL-3.0).
 
 ## License
 

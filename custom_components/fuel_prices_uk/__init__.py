@@ -24,6 +24,7 @@ from .const import (
     CONF_LOCATION,
     CONF_RADIUS,
 )
+from .api_client import FuelPricesAPI
 from .fetch_prices import fetch_stations_by_criteria
 
 _LOGGER = logging.getLogger(__name__)
@@ -43,11 +44,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     _LOGGER.info("Setting up Fuel Prices UK config entry: %s", entry.entry_id)
     _LOGGER.debug("Entry data: %s", entry.data)
 
+    hass.data.setdefault(DOMAIN, {})
+    domain_data = hass.data[DOMAIN]
+    if "api_client" not in domain_data:
+        domain_data["api_client"] = FuelPricesAPI(hass)
+
     update_interval = timedelta(seconds=entry.data[CONF_UPDATE_INTERVAL])
     _LOGGER.info("Update interval set to: %s", update_interval)
 
     coordinator = FuelPricesDataUpdateCoordinator(
-        hass, entry=entry, update_interval=update_interval
+        hass,
+        entry=entry,
+        update_interval=update_interval,
+        api_client=domain_data["api_client"],
     )
 
     try:
@@ -56,8 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         _LOGGER.error("Failed to fetch initial data: %s", err, exc_info=True)
         raise ConfigEntryNotReady(f"Failed to fetch initial fuel price data: {err}") from err
 
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = coordinator
+    domain_data[entry.entry_id] = coordinator
 
     # Use the updated method
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -86,7 +94,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data from the Fuel Prices UK sources."""
 
-    def __init__(self, hass, entry: ConfigEntry, update_interval: timedelta):
+    def __init__(self, hass, entry: ConfigEntry, update_interval: timedelta, api_client: FuelPricesAPI):
         """Initialize."""
         self.hass = hass
         self.entry = entry
@@ -96,6 +104,7 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator):
         self.fuel_types = entry.data.get(CONF_FUELTYPES, ["E10", "B7"])
         self.update_interval = update_interval
         self._logger = _LOGGER
+        self.api_client = api_client
 
         _LOGGER.info(
             "[coordinator][__init__] Initializing with location=%s, radius=%s km, fuel_types=%s, update_interval=%s",
@@ -131,6 +140,7 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator):
                     latitude, longitude, self.radius
                 )
                 stations_data = await fetch_stations_by_criteria(
+                    self.api_client,
                     latitude=latitude,
                     longitude=longitude,
                     radius_km=self.radius,
@@ -144,7 +154,10 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator):
                     site_id = station_config.get("site_id")
                     if site_id:
                         _LOGGER.debug("Fetching station with site_id: %s", site_id)
-                        station_data = await fetch_stations_by_criteria(site_id=site_id)
+                        station_data = await fetch_stations_by_criteria(
+                            self.api_client,
+                            site_id=site_id
+                        )
                         if station_data:
                             _LOGGER.debug("Found station data for site_id: %s", site_id)
                             stations_data.extend(station_data)
