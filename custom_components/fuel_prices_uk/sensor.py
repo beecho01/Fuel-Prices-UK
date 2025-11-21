@@ -24,7 +24,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-ATTRIBUTION = "Data provided by UK Government Fuel Price API"
+ATTRIBUTION = "Data provided by UK Government Fuel Price open data scheme"
 from .price_parser import coerce_price
 
 
@@ -83,8 +83,16 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
             self._attr_native_value = None
             self._attr_extra_state_attributes = _base_attributes(self._fuel_type)
             self._attr_available = False
+            _LOGGER.debug(
+                "[sensor][%s] Coordinator payload was not list-like (type=%s); marking unavailable",
+                self._fuel_type,
+                type(self.coordinator.data).__name__,
+            )
             return
 
+        total_stations = len(data)
+        price_candidates = 0
+        price_matches = 0
         cheapest_price: Optional[float] = None
         cheapest_station: Optional[Dict[str, Any]] = None
 
@@ -98,9 +106,11 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
 
             price_entry = prices.get(self._fuel_type)
             price_value = coerce_price(price_entry)
+            price_candidates += 1
             if price_value is None:
                 continue
 
+            price_matches += 1
             if cheapest_price is None or price_value < cheapest_price:
                 cheapest_price = price_value
                 cheapest_station = station
@@ -109,6 +119,36 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
         self._attr_native_value = cheapest_price
         self._rebuild_attributes()
         self._attr_available = bool(self.coordinator.last_update_success and cheapest_price is not None)
+
+        if cheapest_price is None:
+            if total_stations == 0:
+                _LOGGER.warning(
+                    "[sensor][%s] Coordinator returned no stations; sensor remains unknown",
+                    self._fuel_type,
+                )
+            elif price_matches == 0:
+                _LOGGER.warning(
+                    "[sensor][%s] Checked %s stations (%s price entries) but none exposed %s pricing",
+                    self._fuel_type,
+                    total_stations,
+                    price_candidates,
+                    self._fuel_type,
+                )
+            else:
+                _LOGGER.debug(
+                    "[sensor][%s] Coordinator updated but could not determine cheapest price (matches=%s)",
+                    self._fuel_type,
+                    price_matches,
+                )
+        else:
+            _LOGGER.debug(
+                "[sensor][%s] Cheapest price resolved to %.3f from %s (stations=%s, candidates=%s)",
+                self._fuel_type,
+                cheapest_price,
+                self._station_data.get("site_id") if self._station_data else "<unknown>",
+                total_stations,
+                price_candidates,
+            )
 
     def _rebuild_attributes(self) -> None:
         attributes = _base_attributes(self._fuel_type)
