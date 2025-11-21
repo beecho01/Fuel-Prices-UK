@@ -90,7 +90,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._data = {}
         self._location_method = None
 
-    async def async_step_user(self, user_input=None):  # type: ignore[override]
+    async def async_step_user(self, user_input=None):
         """Handle the initial step - choose location input method."""
         _LOGGER.debug("[config_flow][step_user] Started - choosing location method")
         

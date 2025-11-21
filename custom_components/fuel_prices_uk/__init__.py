@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from datetime import timedelta
+from typing import Any, Dict, List
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
@@ -91,7 +92,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     return unload_ok
 
 
-class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator):
+class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]]):
     """Class to manage fetching data from the Fuel Prices UK sources."""
 
     def __init__(self, hass, entry: ConfigEntry, update_interval: timedelta, api_client: FuelPricesAPI):
@@ -120,7 +121,7 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator):
             always_update=False,  # Only update if data changes to avoid unnecessary state writes
         )
 
-    async def _async_update_data(self):  # type: ignore[override]
+    async def _async_update_data(self) -> List[Dict[str, Any]]:
         """Fetch data from fuel price sources."""
         try:
             _LOGGER.info("[coordinator][_async_update_data] Starting data update cycle")
