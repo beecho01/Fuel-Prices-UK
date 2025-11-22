@@ -8,5 +8,5 @@
     "iot_class": "cloud_polling",
     "issue_tracker": "https://github.com/beecho01/Fuel-Prices-UK/issues",
     "requirements": ["geopy>=2.2.0"],
-    "version": "2025.11.22.b2"
+    "version": "2025.11.22.b3"
 }
