@@ -145,10 +145,19 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             radius_miles = user_input[CONF_RADIUS]
             radius_km = round(radius_miles * MILES_TO_KM, 1)
 
+            location_input = user_input.get(CONF_LOCATION) or {}
+            latitude = location_input.get("latitude")
+            longitude = location_input.get("longitude")
+            if latitude is None or longitude is None:
+                raise InvalidLocation("Map selection must include latitude and longitude")
+
             # Store the configuration (radius stored in km for API)
             self._data = {
                 CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
-                CONF_LOCATION: user_input[CONF_LOCATION],
+                CONF_LOCATION: {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                },
                 CONF_LOCATION_METHOD: "map",
                 CONF_RADIUS: radius_km,  # Store in km
                 CONF_FUELTYPES: user_input[CONF_FUELTYPES],
@@ -167,6 +176,8 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             self._errors[CONF_RADIUS] = "invalid_radius"
         except NoFuelTypeSelected:
             self._errors[CONF_FUELTYPES] = "no_fuel_type_selected"
+        except InvalidLocation:
+            self._errors[CONF_LOCATION] = "invalid_location"
         except Exception as e:
             _LOGGER.exception("Unexpected error during user step: %s", e)
             self._errors["base"] = "unknown"
@@ -327,24 +338,34 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
 
     async def async_step_location_map(self, user_input=None) -> ConfigFlowResult:
         """Handle map-based location options."""
+        self._errors = {}
         if user_input is not None:
             # Convert radius from miles to km before saving
             radius_miles = user_input[CONF_RADIUS]
             radius_km = round(radius_miles * MILES_TO_KM, 1)
-            
-            # Preserve existing data and update with new values
-            updated_data = dict(self.config_entry.data)
-            updated_data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
-            updated_data[CONF_LOCATION] = user_input[CONF_LOCATION]
-            updated_data[CONF_LOCATION_METHOD] = "map"
-            updated_data[CONF_RADIUS] = radius_km
-            updated_data[CONF_FUELTYPES] = user_input[CONF_FUELTYPES]
-            
-            # Remove address if it was set before
-            if CONF_ADDRESS in updated_data:
-                del updated_data[CONF_ADDRESS]
-            
-            return self.async_create_entry(title="", data=updated_data)
+
+            location_input = user_input.get(CONF_LOCATION) or {}
+            latitude = location_input.get("latitude")
+            longitude = location_input.get("longitude")
+            if latitude is None or longitude is None:
+                self._errors = {CONF_LOCATION: "invalid_location"}
+            else:
+                # Preserve existing data and update with new values
+                updated_data = dict(self.config_entry.data)
+                updated_data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
+                updated_data[CONF_LOCATION] = {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                }
+                updated_data[CONF_LOCATION_METHOD] = "map"
+                updated_data[CONF_RADIUS] = radius_km
+                updated_data[CONF_FUELTYPES] = user_input[CONF_FUELTYPES]
+
+                # Remove address if it was set before
+                if CONF_ADDRESS in updated_data:
+                    del updated_data[CONF_ADDRESS]
+
+                return self.async_create_entry(title="", data=updated_data)
         
         # Get current radius in miles (stored in km, convert for display)
         radius_km = self.config_entry.data.get(CONF_RADIUS, 5)
@@ -378,6 +399,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                     ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
                 }
             ),
+            errors=self._errors,
         )
 
     async def async_step_location_address(self, user_input=None) -> ConfigFlowResult:
@@ -481,3 +503,7 @@ class NoFuelTypeSelected(HomeAssistantError):
 
 class InvalidAddress(HomeAssistantError):
     """Error to indicate an invalid address or postcode."""
+
+
+class InvalidLocation(HomeAssistantError):
+    """Error to indicate an invalid map selection."""

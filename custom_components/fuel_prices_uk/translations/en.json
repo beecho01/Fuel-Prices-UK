@@ -47,6 +47,7 @@
       "invalid_update_interval": "Update interval must be at least 300 seconds (5 minutes)",
       "no_fuel_type_selected": "Please select at least one fuel type to monitor",
       "invalid_address": "Could not find location. Please check your postcode/address and try again.",
+      "invalid_location": "Please drop a pin on the map before continuing",
       "unknown": "An unexpected error occurred"
     }
   },

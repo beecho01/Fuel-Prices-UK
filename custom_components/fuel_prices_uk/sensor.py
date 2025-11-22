@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import ATTR_ATTRIBUTION
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import slugify
 
 from .const import (
     ATTR_ADDRESS,
@@ -18,8 +20,13 @@ from .const import (
     ATTR_LONGITUDE,
     ATTR_POSTCODE,
     ATTR_STATION_NAME,
+    CONF_ADDRESS,
     CONF_FUELTYPES,
+    CONF_LOCATION,
+    CONF_RADIUS,
     DOMAIN,
+    KM_TO_MILES,
+    ENTRY_TITLE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,6 +42,36 @@ def _base_attributes(fuel_type: str) -> Dict[str, Any]:
     }
 
 
+def _radius_to_miles(radius_km: Any) -> float:
+    try:
+        radius_value = float(radius_km)
+    except (TypeError, ValueError):
+        radius_value = 5.0
+    return round(radius_value * KM_TO_MILES, 1)
+
+
+def _derive_location_strings(entry: ConfigEntry) -> Tuple[str, str]:
+    radius_mi = _radius_to_miles(entry.data.get(CONF_RADIUS, 5))
+    radius_text = f"{radius_mi:g} mi"
+
+    address = entry.data.get(CONF_ADDRESS)
+    if isinstance(address, str) and address.strip():
+        base_label = address.strip()
+    else:
+        location = entry.data.get(CONF_LOCATION) or {}
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+        if isinstance(latitude, (int, float)) and isinstance(longitude, (int, float)):
+            base_label = f"{float(latitude):.4f},{float(longitude):.4f}"
+        else:
+            base_label = entry.title or ENTRY_TITLE
+
+    location_label = f"{base_label} · {radius_text}"
+    slug_source = f"{base_label} {radius_text}"
+    location_slug = slugify(slug_source) or slugify(entry.entry_id) or "fuel_prices_uk"
+    return location_label, location_slug
+
+
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the sensor platform."""
     try:
@@ -47,7 +84,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             return
 
         entities = [
-            CheapestFuelPriceSensor(coordinator, fuel_type, entry.entry_id)
+            CheapestFuelPriceSensor(coordinator, entry, fuel_type)
             for fuel_type in fuel_types
         ]
 
@@ -62,11 +99,15 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
     """Representation of a Cheapest Fuel Price Sensor."""
 
-    def __init__(self, coordinator, fuel_type: str, entry_id: str) -> None:
+    def __init__(self, coordinator, entry: ConfigEntry, fuel_type: str) -> None:
         super().__init__(coordinator)
         self._fuel_type = fuel_type
-        self._attr_name = f"Cheapest {fuel_type} Price"
-        self._attr_unique_id = f"{entry_id}_{fuel_type}_cheapest"
+        location_label, location_slug = _derive_location_strings(entry)
+        fuel_slug = slugify(fuel_type) or fuel_type.lower()
+        self.entity_id = f"sensor.fuel_price_uk_{location_slug}_cheapest_{fuel_slug}"
+        self._attr_name = f"{ENTRY_TITLE} ({location_label}) - Cheapest {fuel_type}"
+        self._attr_unique_id = f"{entry.entry_id}_{fuel_type}_cheapest"
+        self._location_label = location_label
         self._attr_device_class = SensorDeviceClass.MONETARY
         self._attr_native_unit_of_measurement = "GBP"
         self._attr_suggested_display_precision = 3
