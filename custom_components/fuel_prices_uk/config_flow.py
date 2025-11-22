@@ -33,6 +33,24 @@ from .location import get_lat_lon
 _LOGGER = logging.getLogger(__name__)
 
 
+class SchemaCreationError(HomeAssistantError):
+    """Error raised when the map schema cannot be produced."""
+
+
+
+def _build_map_schema(user_input=None, hass=None):
+    """Build the map configuration schema with defensive logging."""
+    try:
+        return main_config_schema(user_input=user_input, hass=hass)
+    except Exception as exc:  # pragma: no cover - safety net for unexpected schema issues
+        _LOGGER.exception(
+            "[config_flow][schema] Failed to build map schema (user_input=%s, hass_available=%s)",
+            user_input,
+            hass is not None,
+        )
+        raise SchemaCreationError("Unable to build location selector schema") from exc
+
+
 def main_config_schema(user_input=None, hass=None):
     """Define the schema for the main configuration step."""
     if user_input is None:
@@ -124,7 +142,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is None:
             return self.async_show_form(
                 step_id="location_map",
-                data_schema=main_config_schema(hass=self.hass),
+                data_schema=_build_map_schema(hass=self.hass),
                 description_placeholders={
                     "info": "Configure your fuel price monitoring. Stations within the specified radius of your location will be monitored."
                 },
@@ -197,7 +215,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="location_map",
-            data_schema=main_config_schema(user_input, hass=self.hass),
+            data_schema=_build_map_schema(user_input, hass=self.hass),
             errors=self._errors,
         )
 
