@@ -78,9 +78,6 @@ def main_config_schema(user_input=None, hass=None):
     radius_km = user_input.get(CONF_RADIUS, 5)  # This is in km internally
     radius_miles = round(radius_km * KM_TO_MILES, 1) if CONF_RADIUS in user_input else 3.0
     
-    # Convert radius to meters for the location selector (it uses meters)
-    radius_meters = int(radius_km * 1000)
-
     return vol.Schema(
         {
             vol.Required(
@@ -96,7 +93,6 @@ def main_config_schema(user_input=None, hass=None):
                 default=user_input.get(CONF_LOCATION, default_location),
             ): selector({
                 "location": {
-                    "radius": radius_meters,
                     "icon": "mdi:gas-station"
                 }
             }),
@@ -416,7 +412,6 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
         # Get current radius in miles (stored in km, convert for display)
         radius_km = self.config_entry.data.get(CONF_RADIUS, 5)
         radius_miles = round(radius_km * KM_TO_MILES, 1)
-        radius_meters = int(radius_km * 1000)
 
         return self.async_show_form(
             step_id="location_map",
@@ -435,7 +430,6 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                         default=self.config_entry.data.get(CONF_LOCATION),
                     ): selector({
                         "location": {
-                            "radius": radius_meters,
                             "icon": "mdi:gas-station"
                         }
                     }),
