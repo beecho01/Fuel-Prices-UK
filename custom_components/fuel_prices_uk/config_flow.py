@@ -43,11 +43,22 @@ def _build_map_schema(user_input=None, hass=None):
     try:
         return main_config_schema(user_input=user_input, hass=hass)
     except Exception as exc:  # pragma: no cover - safety net for unexpected schema issues
+        error_details = []
+        if hasattr(exc, "errors"):
+            error_details = [
+                {
+                    "path": list(getattr(err, "path", ())),
+                    "message": getattr(err, "msg", str(err)),
+                    "error": repr(err),
+                }
+                for err in exc.errors  # type: ignore[attr-defined]
+            ]
         _LOGGER.exception(
-            "[config_flow][schema] Failed to build map schema (user_input=%s, hass_available=%s, error=%r)",
+            "[config_flow][schema] Failed to build map schema (user_input=%s, hass_available=%s, error=%r, details=%s)",
             user_input,
             hass is not None,
             exc,
+            error_details,
         )
         raise SchemaCreationError("Unable to build location selector schema") from exc
 
