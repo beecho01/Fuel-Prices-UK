@@ -145,9 +145,18 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             radius_miles = user_input[CONF_RADIUS]
             radius_km = round(radius_miles * MILES_TO_KM, 1)
 
-            location_input = user_input.get(CONF_LOCATION) or {}
-            latitude = location_input.get("latitude")
-            longitude = location_input.get("longitude")
+            location_raw = user_input.get(CONF_LOCATION)
+            _LOGGER.debug(
+                "[config_flow][step_location_map] Raw location selector payload: %s",
+                location_raw,
+            )
+
+            latitude, longitude = _extract_coordinates(location_raw)
+            _LOGGER.debug(
+                "[config_flow][step_location_map] Normalised coordinates -> lat=%s, lon=%s",
+                latitude,
+                longitude,
+            )
             if latitude is None or longitude is None:
                 raise InvalidLocation("Map selection must include latitude and longitude")
 
@@ -179,7 +188,11 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         except InvalidLocation:
             self._errors[CONF_LOCATION] = "invalid_location"
         except Exception as e:
-            _LOGGER.exception("Unexpected error during user step: %s", e)
+            _LOGGER.exception(
+                "[config_flow][step_location_map] Unexpected exception (raw=%r, user_input=%s)",
+                e,
+                user_input,
+            )
             self._errors["base"] = "unknown"
 
         return self.async_show_form(
@@ -344,9 +357,12 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
             radius_miles = user_input[CONF_RADIUS]
             radius_km = round(radius_miles * MILES_TO_KM, 1)
 
-            location_input = user_input.get(CONF_LOCATION) or {}
-            latitude = location_input.get("latitude")
-            longitude = location_input.get("longitude")
+            location_raw = user_input.get(CONF_LOCATION)
+            _LOGGER.debug(
+                "[options_flow][step_location_map] Raw location selector payload: %s",
+                location_raw,
+            )
+            latitude, longitude = _extract_coordinates(location_raw)
             if latitude is None or longitude is None:
                 self._errors = {CONF_LOCATION: "invalid_location"}
             else:
@@ -457,7 +473,11 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
             except InvalidAddress:
                 self._errors[CONF_ADDRESS] = "invalid_address"
             except Exception as e:
-                _LOGGER.exception("Unexpected error during address lookup in options: %s", e)
+                _LOGGER.exception(
+                    "[options_flow][step_location_address] Unexpected exception (raw=%r, user_input=%s)",
+                    e,
+                    user_input,
+                )
                 self._errors["base"] = "unknown"
         
         # Get current values
@@ -507,3 +527,18 @@ class InvalidAddress(HomeAssistantError):
 
 class InvalidLocation(HomeAssistantError):
     """Error to indicate an invalid map selection."""
+
+
+def _extract_coordinates(location_input):
+    if not isinstance(location_input, dict):
+        return None, None
+    latitude = location_input.get("latitude")
+    longitude = location_input.get("longitude")
+    if latitude is None or longitude is None:
+        return None, None
+    try:
+        lat = float(latitude)
+        lon = float(longitude)
+    except (TypeError, ValueError):
+        return None, None
+    return lat, lon
