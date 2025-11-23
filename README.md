@@ -1,10 +1,25 @@
-# 🇬🇧 Fuel Prices UK - Home Assistant Integration
+<p align="center"><img src="images/icon.png" width="140" style="vertical-align: middle;"></p>
 
-A Home Assistant custom integration that monitors fuel prices at UK petrol stations using official government data feeds. Find the cheapest fuel near you!
+<h1 align="center">Fuel Prices UK - Home Assistant Integration</h1>
 
-[![GitHub Release][releases-shield]][releases]
-[![License][license-shield]](LICENSE)
-[![hacs][hacsbadge]][hacs]
+<p align="center">
+   <em>
+      A Home Assistant custom integration that monitors fuel prices at UK petrol stations using official government data feeds. 
+      <p align="center">
+         Find the cheapest fuel near you!
+      </p>
+   </em>
+</p>
+
+<br>
+
+<div>
+  <p align="center">
+    <img src="https://img.shields.io/github/languages/top/beecho01/Fuel-Prices-UK?style=for-the-badge&color=012169">
+    <img src="https://img.shields.io/github/languages/code-size/beecho01/Fuel-Prices-UK?style=for-the-badge&color=FFFFFF">
+    <a href="http://creativecommons.org/licenses/by-nc-sa/4.0/"><img src="https://img.shields.io/badge/license-CC--BY--NC--SA--4.0-8257e6?style=for-the-badge&logoColor=white&label=License&color=C8102E"></a>
+  </p>
+</div>
 
 ## Features
 
@@ -240,9 +255,3 @@ This integration is not affiliated with or endorsed by the UK Government. Price 
 ---
 
 Made with ❤️ for the Home Assistant community
-
-[releases-shield]: https://img.shields.io/github/release/beecho01/Fuel-Prices-UK.svg
-[releases]: https://github.com/beecho01/Fuel-Prices-UK/releases
-[license-shield]: https://img.shields.io/github/license/beecho01/Fuel-Prices-UK.svg
-[hacs]: https://github.com/hacs/integration
-[hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg
