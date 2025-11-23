@@ -108,11 +108,11 @@ The integration creates one sensor for each fuel type you've selected:
 
 ### Cheapest Price Sensors
 
-**Sensor Name:** `sensor.cheapest_[fuel_type]_price`
+**Sensor Name:** `sensor.fuel_price_uk_[location]_[distance]_cheapest_[fuel_type]`
 
-Example: `sensor.cheapest_e10_price`
+Example: `sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10`
 
-**State:** Current cheapest price in £/L
+**State:** Current cheapest price in £/L to 3 decimal places (e.g. £1.379)
 
 **Attributes:**
 - `fuel_type`: The type of fuel (E10, E5, B7, SDV)
@@ -131,16 +131,20 @@ Example: `sensor.cheapest_e10_price`
 type: entities
 title: Cheapest Fuel Prices Near Me
 entities:
-  - entity: sensor.cheapest_e10_price
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
     name: Unleaded (E10)
     secondary_info: attribute
     attribute: station_name
-  - entity: sensor.cheapest_b7_price
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
     name: Diesel (B7)
     secondary_info: attribute
     attribute: station_name
-  - entity: sensor.cheapest_e5_price
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
     name: Super Unleaded (E5)
+    secondary_info: attribute
+    attribute: station_name
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
+    name: Super Diesel (SDV)
     secondary_info: attribute
     attribute: station_name
 ```
@@ -152,10 +156,19 @@ Show fuel stations on a map:
 ```yaml
 type: map
 entities:
-  - entity: sensor.cheapest_e10_price
-  - entity: sensor.cheapest_b7_price
-  - entity: sensor.cheapest_e5_price
-default_zoom: 12
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
+    label_mode: attribute
+    attribute: fuel_type
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
+    label_mode: attribute
+    attribute: fuel_type
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
+    label_mode: attribute
+    attribute: fuel_type
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
+    label_mode: attribute
+    attribute: fuel_type
+auto_fit: true
 ```
 
 ### Price Comparison Card
@@ -164,16 +177,20 @@ default_zoom: 12
 type: horizontal-stack
 cards:
   - type: statistic
-    entity: sensor.cheapest_e10_price
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
     name: E10
     icon: mdi:gas-station
   - type: statistic
-    entity: sensor.cheapest_b7_price
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
     name: Diesel
     icon: mdi:gas-station
   - type: statistic
-    entity: sensor.cheapest_e5_price
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
     name: E5
+    icon: mdi:gas-station
+  - type: statistic
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
+    name: SDV
     icon: mdi:gas-station
 ```
 
