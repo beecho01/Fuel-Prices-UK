@@ -133,20 +133,24 @@ title: Cheapest Fuel Prices Near Me
 entities:
   - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
     name: Unleaded (E10)
-    secondary_info: attribute
-    attribute: station_name
+    secondary_info: >
+      {{ (state_attr(entity, 'brand') or '') ~ ' – ' ~ ((state_attr(entity,
+      'address') or '') | title) }}
   - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
     name: Diesel (B7)
-    secondary_info: attribute
-    attribute: station_name
+    secondary_info: >
+      {{ (state_attr(entity, 'brand') or '') ~ ' – ' ~ ((state_attr(entity,
+      'address') or '') | title) }}
   - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
     name: Super Unleaded (E5)
-    secondary_info: attribute
-    attribute: station_name
+    secondary_info: >
+      {{ (state_attr(entity, 'brand') or '') ~ ' – ' ~ ((state_attr(entity,
+      'address') or '') | title) }}
   - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
     name: Super Diesel (SDV)
-    secondary_info: attribute
-    attribute: station_name
+    secondary_info: >
+      {{ (state_attr(entity, 'brand') or '') ~ ' – ' ~ ((state_attr(entity,
+      'address') or '') | title) }}
 ```
 
 ### Map Card
@@ -171,24 +175,26 @@ entities:
 auto_fit: true
 ```
 
-### Price Comparison Card
+### Grid Card
 
 ```yaml
-type: horizontal-stack
+type: grid
+square: false
+columns: 2
 cards:
-  - type: statistic
+  - type: sensor
     entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
     name: E10
     icon: mdi:gas-station
-  - type: statistic
+  - type: sensor
     entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
     name: Diesel
     icon: mdi:gas-station
-  - type: statistic
+  - type: sensor
     entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
     name: E5
     icon: mdi:gas-station
-  - type: statistic
+  - type: sensor
     entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
     name: SDV
     icon: mdi:gas-station
