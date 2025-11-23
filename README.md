@@ -127,6 +127,8 @@ Example: `sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10`
 
 ## Example Lovelace Card
 
+<img width="400" src="https://raw.githubusercontent.com/beecho01/Fuel-Prices-UK/refs/heads/main/images/entities_card_example.png">
+
 ```yaml
 type: entities
 title: Cheapest Fuel Prices Near Me
@@ -154,8 +156,9 @@ entities:
 ```
 
 ### Map Card
-
 Show fuel stations on a map:
+
+<img width="400" src="https://raw.githubusercontent.com/beecho01/Fuel-Prices-UK/refs/heads/main/images/map_card_example.png">
 
 ```yaml
 type: map
@@ -176,6 +179,8 @@ auto_fit: true
 ```
 
 ### Grid Card
+
+<img width="400" src="https://raw.githubusercontent.com/beecho01/Fuel-Prices-UK/refs/heads/main/images/grid_sensor_example.png">
 
 ```yaml
 type: grid
