@@ -1,10 +1,25 @@
-# 🇬🇧 Fuel Prices UK - Home Assistant Integration
+<p align="center"><img src="images/icon.png" width="140" style="vertical-align: middle;"></p>
 
-A Home Assistant custom integration that monitors fuel prices at UK petrol stations using official government data feeds. Find the cheapest fuel near you!
+<h1 align="center">Fuel Prices UK - Home Assistant Integration</h1>
 
-[![GitHub Release][releases-shield]][releases]
-[![License][license-shield]](LICENSE)
-[![hacs][hacsbadge]][hacs]
+<p align="center">
+   <em>
+      A Home Assistant custom integration that monitors fuel prices at UK petrol stations using official government data feeds. 
+      <p align="center">
+         Find the cheapest fuel near you!
+      </p>
+   </em>
+</p>
+
+<br>
+
+<div>
+  <p align="center">
+    <img src="https://img.shields.io/github/languages/top/beecho01/Fuel-Prices-UK?style=for-the-badge&color=012169">
+    <img src="https://img.shields.io/github/languages/code-size/beecho01/Fuel-Prices-UK?style=for-the-badge&color=FFFFFF">
+    <a href="http://creativecommons.org/licenses/by-nc-sa/4.0/"><img src="https://img.shields.io/badge/license-CC--BY--NC--SA--4.0-8257e6?style=for-the-badge&logoColor=white&label=License&color=C8102E"></a>
+  </p>
+</div>
 
 ## Features
 
@@ -93,11 +108,11 @@ The integration creates one sensor for each fuel type you've selected:
 
 ### Cheapest Price Sensors
 
-**Sensor Name:** `sensor.cheapest_[fuel_type]_price`
+**Sensor Name:** `sensor.fuel_price_uk_[location]_[distance]_cheapest_[fuel_type]`
 
-Example: `sensor.cheapest_e10_price`
+Example: `sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10`
 
-**State:** Current cheapest price in £/L
+**State:** Current cheapest price in £/L to 3 decimal places (e.g. £1.379)
 
 **Attributes:**
 - `fuel_type`: The type of fuel (E10, E5, B7, SDV)
@@ -116,16 +131,20 @@ Example: `sensor.cheapest_e10_price`
 type: entities
 title: Cheapest Fuel Prices Near Me
 entities:
-  - entity: sensor.cheapest_e10_price
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
     name: Unleaded (E10)
     secondary_info: attribute
     attribute: station_name
-  - entity: sensor.cheapest_b7_price
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
     name: Diesel (B7)
     secondary_info: attribute
     attribute: station_name
-  - entity: sensor.cheapest_e5_price
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
     name: Super Unleaded (E5)
+    secondary_info: attribute
+    attribute: station_name
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
+    name: Super Diesel (SDV)
     secondary_info: attribute
     attribute: station_name
 ```
@@ -137,10 +156,19 @@ Show fuel stations on a map:
 ```yaml
 type: map
 entities:
-  - entity: sensor.cheapest_e10_price
-  - entity: sensor.cheapest_b7_price
-  - entity: sensor.cheapest_e5_price
-default_zoom: 12
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
+    label_mode: attribute
+    attribute: fuel_type
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
+    label_mode: attribute
+    attribute: fuel_type
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
+    label_mode: attribute
+    attribute: fuel_type
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
+    label_mode: attribute
+    attribute: fuel_type
+auto_fit: true
 ```
 
 ### Price Comparison Card
@@ -149,16 +177,20 @@ default_zoom: 12
 type: horizontal-stack
 cards:
   - type: statistic
-    entity: sensor.cheapest_e10_price
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
     name: E10
     icon: mdi:gas-station
   - type: statistic
-    entity: sensor.cheapest_b7_price
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
     name: Diesel
     icon: mdi:gas-station
   - type: statistic
-    entity: sensor.cheapest_e5_price
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
     name: E5
+    icon: mdi:gas-station
+  - type: statistic
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
+    name: SDV
     icon: mdi:gas-station
 ```
 
@@ -240,9 +272,3 @@ This integration is not affiliated with or endorsed by the UK Government. Price 
 ---
 
 Made with ❤️ for the Home Assistant community
-
-[releases-shield]: https://img.shields.io/github/release/beecho01/Fuel-Prices-UK.svg
-[releases]: https://github.com/beecho01/Fuel-Prices-UK/releases
-[license-shield]: https://img.shields.io/github/license/beecho01/Fuel-Prices-UK.svg
-[hacs]: https://github.com/hacs/integration
-[hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg
