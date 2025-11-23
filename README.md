@@ -17,7 +17,7 @@
   <p align="center">
     <img src="https://img.shields.io/github/languages/top/beecho01/Fuel-Prices-UK?style=for-the-badge&color=012169">
     <img src="https://img.shields.io/github/languages/code-size/beecho01/Fuel-Prices-UK?style=for-the-badge&color=FFFFFF">
-    <a href="http://creativecommons.org/licenses/by-nc-sa/4.0/"><img src="https://img.shields.io/badge/license-CC--BY--NC--SA--4.0-8257e6?style=for-the-badge&logoColor=white&label=License&color=C8102E"></a>
+    <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/github/license/beecho01/Fuel-Prices-UK?style=for-the-badge&logoColor=white&label=License&color=C8102E"></a>
   </p>
 </div>
 
