@@ -116,7 +116,6 @@ Example: `sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10`
 
 **Attributes:**
 - `fuel_type`: The type of fuel (E10, E5, B7, SDV)
-- `station_name`: Name of the station with the cheapest price
 - `address`: Full address of the station
 - `postcode`: Postcode of the station
 - `brand`: Retailer brand (e.g., "Tesco", "Shell")
@@ -124,6 +123,9 @@ Example: `sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10`
 - `longitude`: Station longitude
 - `distance`: Distance from your location (km)
 - `last_updated`: When the price was last updated
+- `unit_of_measurement`: GBP
+- `device_class`: monetary
+- `icon`: mdi:gas-station
 
 ## Example Lovelace Card
 
@@ -155,7 +157,7 @@ entities:
       'address') or '') | title) }}
 ```
 
-### Map Card
+### Example Map Card
 Show fuel stations on a map:
 
 <img width="400" src="https://raw.githubusercontent.com/beecho01/Fuel-Prices-UK/refs/heads/main/images/map_card_example.png">
@@ -178,7 +180,7 @@ entities:
 auto_fit: true
 ```
 
-### Grid Card
+### Example Grid Card
 
 <img width="400" src="https://raw.githubusercontent.com/beecho01/Fuel-Prices-UK/refs/heads/main/images/grid_sensor_example.png">
 
