@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -22,9 +24,27 @@ if sys.platform.startswith("win") and isinstance(
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Validate Fuel Finder API connectivity")
+    parser.add_argument("--client-id", default=os.getenv("FUEL_FINDER_CLIENT_ID"))
+    parser.add_argument("--client-secret", default=os.getenv("FUEL_FINDER_CLIENT_SECRET"))
+    return parser.parse_args()
+
+
 async def main() -> None:
+    args = _parse_args()
+    if not args.client_id or not args.client_secret:
+        raise SystemExit(
+            "Missing credentials. Pass --client-id/--client-secret or set "
+            "FUEL_FINDER_CLIENT_ID and FUEL_FINDER_CLIENT_SECRET."
+        )
+
     async with aiohttp.ClientSession() as session:
-        api = FuelPricesAPI(session=session)
+        api = FuelPricesAPI(
+            session=session,
+            client_id=args.client_id,
+            client_secret=args.client_secret,
+        )
         stations = await api.get_all_stations(force_refresh=True)
         if not stations:
             raise SystemExit("No stations returned from data sources")
@@ -33,7 +53,7 @@ async def main() -> None:
         sample = stations[0]
         print(
             "Sample station:",
-            sample.get("name") or sample.get("brand") or sample.get("site_id"),
+            sample.get("name") or sample.get("trading_name") or sample.get("brand") or sample.get("site_id"),
             "-",
             sample.get("postcode"),
         )

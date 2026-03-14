@@ -12,6 +12,8 @@ CONF_ADDRESS = "address"
 CONF_RADIUS = "radius"
 CONF_SEARCH_METHOD = "search_method"
 CONF_SITE_ID = "site_id"
+CONF_CLIENT_ID = "client_id"
+CONF_CLIENT_SECRET = "client_secret"
 
 ATTR_LAST_UPDATED = "last_updated"
 ATTR_RETAILER = "retailer"

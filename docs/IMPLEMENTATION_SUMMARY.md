@@ -62,6 +62,9 @@ Home Assistant UI
 4. Data is filtered by radius and fuel types
 5. Sensors display cheapest prices for each fuel type
 
+For the up-to-date flow (including API credential validation and options flow), see:
+- [custom_components/fuel_prices_uk/config_flow.mmd](../custom_components/fuel_prices_uk/config_flow.mmd)
+
 ---
 
 ## 🔑 Key Features

@@ -1,11 +1,9 @@
 """The Fuel Prices UK integration."""
-import asyncio
 import logging
 from datetime import timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import (
@@ -15,12 +13,11 @@ from homeassistant.helpers.update_coordinator import (
 
 from .const import (
     DOMAIN,
-    SCHEMA_VERSION,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
     CONF_UPDATE_INTERVAL,
     CONF_STATIONS,
     CONF_FUELTYPES,
-    NAME,
-    INTEGRATION_ID,
     ENTRY_TITLE,
     CONF_LOCATION,
     CONF_RADIUS,
@@ -33,7 +30,7 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
 
-async def async_setup(hass: HomeAssistant, config: dict):
+async def async_setup(hass: HomeAssistant, _config: Mapping[str, Any]) -> bool:
     """Set up the Fuel Prices UK integration."""
     # We don't support YAML-based configuration, so return True
     hass.data.setdefault(DOMAIN, {})
@@ -43,12 +40,23 @@ async def async_setup(hass: HomeAssistant, config: dict):
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up Fuel Prices UK from a config entry."""
     _LOGGER.info("Setting up Fuel Prices UK config entry: %s", entry.entry_id)
-    _LOGGER.debug("Entry data: %s", entry.data)
+    _LOGGER.debug("Entry data: %s", _redacted_entry_data(entry.data))
 
     hass.data.setdefault(DOMAIN, {})
     domain_data = hass.data[DOMAIN]
-    if "api_client" not in domain_data:
-        domain_data["api_client"] = FuelPricesAPI(hass)
+
+    client_id = str(entry.data.get(CONF_CLIENT_ID, "")).strip()
+    client_secret = str(entry.data.get(CONF_CLIENT_SECRET, "")).strip()
+    if not client_id or not client_secret:
+        raise ConfigEntryNotReady(
+            "Fuel Finder API credentials are missing. Reconfigure the integration with a valid client ID and secret."
+        )
+
+    api_client = FuelPricesAPI(
+        hass,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
 
     update_interval = timedelta(seconds=entry.data[CONF_UPDATE_INTERVAL])
     _LOGGER.info("Update interval set to: %s", update_interval)
@@ -57,7 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         hass,
         entry=entry,
         update_interval=update_interval,
-        api_client=domain_data["api_client"],
+        api_client=api_client,
     )
 
     try:
@@ -108,7 +116,7 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]
         self.api_client = api_client
 
         _LOGGER.info(
-            "[coordinator][__init__] Initializing with location=%s, radius=%s km, fuel_types=%s, update_interval=%s",
+            "[coordinator][__init__] Initialising with location=%s, radius=%s km, fuel_types=%s, update_interval=%s",
             self.location, self.radius, self.fuel_types, update_interval
         )
 
@@ -175,3 +183,11 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]
         except Exception as err:
             _LOGGER.error("Error fetching data: %s", err, exc_info=True)
             raise UpdateFailed(f"Error fetching data: {err}") from err
+
+
+def _redacted_entry_data(data: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return config entry data with sensitive fields masked for logging."""
+    safe = dict(data)
+    if CONF_CLIENT_SECRET in safe and safe[CONF_CLIENT_SECRET]:
+        safe[CONF_CLIENT_SECRET] = "***REDACTED***"
+    return safe

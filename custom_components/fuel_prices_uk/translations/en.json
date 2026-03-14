@@ -3,10 +3,12 @@
   "config": {
     "step": {
       "user": {
-        "title": "Choose Location Method",
-        "description": "Choose how you want to specify your location.",
+        "title": "Fuel Finder API and Search Setup",
+        "description": "Choose how to set your search location and enter your Fuel Finder API credentials. You can create your Client ID and Client Secret via the UK Government Fuel Finder guidance: https://www.gov.uk/guidance/access-fuel-price-data",
         "data": {
-          "location_method": "Location Input Method"
+          "search_method": "How would you like to set your search area?",
+          "client_id": "Fuel Finder API Client ID",
+          "client_secret": "Fuel Finder API Client Secret"
         }
       },
       "location_map": {
@@ -45,6 +47,7 @@
     "error": {
       "invalid_radius": "Radius must be between 0.5 and 31 miles",
       "invalid_update_interval": "Update interval must be at least 300 seconds (5 minutes)",
+      "invalid_api_credentials": "Fuel Finder API credentials are invalid. Check your Client ID and Client Secret.",
       "no_fuel_type_selected": "Please select at least one fuel type to monitor",
       "invalid_address": "Could not find location. Please check your postcode/address and try again.",
       "invalid_location": "Please drop a pin on the map before continuing",
@@ -52,12 +55,23 @@
     }
   },
   "options": {
+    "error": {
+      "invalid_radius": "Radius must be between 0.5 and 31 miles",
+      "invalid_update_interval": "Update interval must be at least 300 seconds (5 minutes)",
+      "invalid_api_credentials": "Fuel Finder API credentials are invalid. Check your Client ID and Client Secret.",
+      "no_fuel_type_selected": "Please select at least one fuel type to monitor",
+      "invalid_address": "Could not find location. Please check your postcode/address and try again.",
+      "invalid_location": "Please drop a pin on the map before continuing",
+      "unknown": "An unexpected error occurred"
+    },
     "step": {
       "init": {
-        "title": "Choose Location Method",
-        "description": "Choose how you want to update your location.",
+        "title": "Update Search Method and API Credentials",
+        "description": "Choose how to update your search location and optionally rotate your Fuel Finder API credentials. You can create or manage credentials via: https://www.gov.uk/guidance/access-fuel-price-data",
         "data": {
-          "location_method": "Location Input Method"
+          "search_method": "How would you like to set your search area?",
+          "client_id": "Fuel Finder API Client ID",
+          "client_secret": "Fuel Finder API Client Secret (leave blank to keep existing)"
         }
       },
       "location_map": {

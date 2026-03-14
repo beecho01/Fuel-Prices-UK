@@ -23,7 +23,7 @@
 
 ## Features
 
-- ✅ **Official UK Government Data** - Uses data from the UK Government's fuel price transparency scheme
+- ✅ **Official Fuel Finder API** - Uses the UK Government Fuel Finder API (OAuth-protected)
 - ✅ **Real-time Price Monitoring** - Track E10, E5, B7 (Diesel), and SDV (Super Diesel) prices
 - ✅ **Location-Based Search** - Find stations within a specified radius of your home or any location
 - ✅ **Automatic Updates** - Configurable update intervals from 5 minutes to 24 hours
@@ -37,24 +37,15 @@
 - **B7** - Standard diesel (7% biodiesel)
 - **SDV** - Super diesel / Premium diesel
 
-## Supported Retailers
+## Fuel Finder API Access
 
-We query every retailer feed currently listed on the UK Government's [fuel price transparency scheme](https://www.gov.uk/guidance/access-fuel-price-data) (last checked 15 July 2025):
+This integration now uses the UK Government Fuel Finder platform directly:
 
-- Ascona Group
-- Asda
-- bp
-- Esso Tesco Alliance
-- JET Retail UK
-- Karan Retail Ltd
-- Morrisons
-- Moto
-- Motor Fuel Group
-- Rontec
-- Sainsbury's
-- SGN
-- Shell
-- Tesco
+- Public data API: `GET /api/v1/pfs` and `GET /api/v1/pfs/fuel-prices`
+- Authentication: OAuth client credentials via `POST /api/v1/oauth/generate_access_token`
+- Documentation: [Fuel Finder Developer Portal](https://www.developer.fuel-finder.service.gov.uk/public-api)
+
+You must create your own API application credentials before setup.
 
 ## Installation
 
@@ -83,24 +74,34 @@ We query every retailer feed currently listed on the UK Government's [fuel price
 
 ### Setup via UI
 
+Before adding the integration, create API credentials:
+
+1. Sign in at the [Fuel Finder Developer Portal](https://www.developer.fuel-finder.service.gov.uk/public-api)
+2. Create an Information Recipient application
+3. Copy your `client_id` and `client_secret`
+
+Then in Home Assistant:
+
 1. Go to **Settings** → **Devices & Services**
 2. Click **+ Add Integration**
 3. Search for "Fuel Prices UK"
 4. Follow the configuration wizard:
-   - **Update Interval**: How often to fetch prices (in seconds, minimum 300 = 5 minutes)
-   - **Location**: Select your location on the map (defaults to your Home Assistant location)
-   - **Search Radius**: Distance in km to search for fuel stations (1-50 km)
-   - **Fuel Types**: Select which fuel types you want to monitor
+  - **Fuel Finder API Client ID**
+  - **Fuel Finder API Client Secret**
+  - **Location Method** (map or address/postcode)
+  - **Update Interval**: How often to fetch prices (minimum 300 seconds)
+  - **Location**: Map pin or address/postcode lookup
+  - **Search Radius**: Distance in miles (0.5-31)
+  - **Fuel Types**: Fuel types to monitor
 
 ### Configuration Options
 
 After setup, you can update these settings by clicking **Configure** on the integration:
 
+- Fuel Finder API credentials
 - Update interval
 - Search radius
 - Fuel types to monitor
-
-Note: To change the location, you'll need to remove and re-add the integration.
 
 ## Sensors
 
@@ -137,25 +138,20 @@ title: Cheapest Fuel Prices Near Me
 entities:
   - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
     name: Unleaded (E10)
-    secondary_info: >
-      {{ (state_attr(entity, 'brand') or '') ~ ' – ' ~ ((state_attr(entity,
-      'address') or '') | title) }}
+    secondary_info: last-updated
   - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
     name: Diesel (B7)
-    secondary_info: >
-      {{ (state_attr(entity, 'brand') or '') ~ ' – ' ~ ((state_attr(entity,
-      'address') or '') | title) }}
+    secondary_info: last-updated
   - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
     name: Super Unleaded (E5)
-    secondary_info: >
-      {{ (state_attr(entity, 'brand') or '') ~ ' – ' ~ ((state_attr(entity,
-      'address') or '') | title) }}
+    secondary_info: last-updated
   - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
     name: Super Diesel (SDV)
-    secondary_info: >
-      {{ (state_attr(entity, 'brand') or '') ~ ' – ' ~ ((state_attr(entity,
-      'address') or '') | title) }}
+    secondary_info: last-updated
 ```
+
+The standard Home Assistant `entities` card does not evaluate Jinja templates in `secondary_info`.
+If you want `brand` + `address` rendered inline, use a custom row card such as `custom:template-entity-row` from HACS.
 
 ### Example Map Card
 Show fuel stations on a map:
@@ -209,14 +205,12 @@ cards:
 
 ## How It Works
 
-This integration ships with a lightweight async client (see `custom_components/fuel_prices_uk/api_client.py`) that talks directly to the official Home Office endpoints without external dependencies.
+This integration ships with a lightweight async client in `custom_components/fuel_prices_uk/api_client.py` that:
 
-As mandated by the UK Government, major fuel retailers publish their prices in an open data format, making this information freely available. The integration:
-
-1. Downloads price data from each participating retailer feed
-2. Filters stations within your specified radius (or by Site ID)
-3. Sorts by price for each selected fuel type
-4. Creates sensors showing the cheapest options
+1. Exchanges your `client_id` and `client_secret` for a short-lived OAuth token
+2. Fetches station metadata (`/api/v1/pfs`) and fuel prices (`/api/v1/pfs/fuel-prices`) in API batches
+3. Normalises fuel types from the new API (for example `B7_STANDARD` → `B7`)
+4. Filters stations within your configured radius and exposes the cheapest values per fuel type
 
 ## Data Update Frequency
 
@@ -244,14 +238,15 @@ Note: Most retailers update their prices once per day, typically overnight.
 ### Integration Won't Load
 
 - Check your Home Assistant logs for errors
+- Verify your Fuel Finder API credentials are valid
 - Ensure you have Python 3.9 or higher
 - Try reinstalling the integration
 - Restart Home Assistant
 
 ## Development & Verification
 
-- Run `python scripts/check_api_client.py` to perform a quick end-to-end test of the bundled API client. The script prints how many stations were retrieved plus a sample entry so you can confirm the government data feeds are reachable from your environment.
-- The lightweight client that ships with this integration (see `custom_components/fuel_prices_uk/api_client.py`) talks directly to the official UK Government endpoints and keeps attribution to the upstream [`uk-fuel-prices-api`](https://github.com/gaco79/uk_fuel_prices_api) project (LGPL-3.0).
+- Run `python scripts/check_api_client.py --client-id YOUR_ID --client-secret YOUR_SECRET` to perform a quick end-to-end check against the Fuel Finder API.
+- You can also set `FUEL_FINDER_CLIENT_ID` and `FUEL_FINDER_CLIENT_SECRET` environment variables and run the same script without flags.
 
 ## Known Limitations
 
@@ -268,11 +263,10 @@ For issues, feature requests, or questions:
 
 ## Data Sources
 
-This integration uses official data provided under the UK Government's fuel price transparency scheme:
-- [UK Government Fuel Price Data](https://www.gov.uk/guidance/access-fuel-price-data)
-- [uk-fuel-prices-api PyPI Package](https://pypi.org/project/uk-fuel-prices-api/)
-
-Additional credit: portions of the in-repo API client were inspired by the open-source [`uk-fuel-prices-api`](https://github.com/gaco79/uk_fuel_prices_api) project (LGPL-3.0).
+This integration uses official data provided by the UK Government Fuel Finder service:
+- [Fuel Finder Public API](https://www.developer.fuel-finder.service.gov.uk/public-api)
+- [Fuel Finder API Authentication](https://www.developer.fuel-finder.service.gov.uk/api-authentication)
+- [Fuel Finder Information Recipient OpenAPI](https://www.developer.fuel-finder.service.gov.uk/apis-ifr/info-recipent)
 
 ## License
 

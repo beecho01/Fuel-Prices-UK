@@ -57,8 +57,8 @@ The Fuel Prices UK integration now supports **two methods** for specifying your 
 - **Radius**: Stored in **kilometers** internally, displayed in **miles**
 
 ### API Integration
-- Both methods provide coordinates to the `uk-fuel-prices-api`
-- No difference in API behavior between methods
+- Both methods provide coordinates to the Fuel Finder API client
+- No difference in API behaviour between methods
 - Address lookup happens **only during configuration**, not at runtime
 
 ### Dependencies

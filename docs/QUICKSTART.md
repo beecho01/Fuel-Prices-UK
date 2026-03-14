@@ -22,19 +22,14 @@ Choose one of these methods:
 3. Copy the `custom_components/fuel_prices_uk` folder to your Home Assistant `custom_components` directory
 4. Restart Home Assistant
 
-### Step 2: Install the Required Python Package
+### Step 2: Create Fuel Finder API Credentials
 
-The integration needs the `uk-fuel-prices-api` package. Home Assistant should install this automatically, but if you encounter issues:
+1. Go to the [Fuel Finder Developer Portal](https://www.developer.fuel-finder.service.gov.uk/public-api)
+2. Sign in with GOV.UK One Login
+3. Create an Information Recipient application
+4. Copy your `client_id` and `client_secret`
 
-**SSH into your Home Assistant instance and run:**
-```bash
-pip install uk-fuel-prices-api
-```
-
-Or if using Home Assistant Container:
-```bash
-docker exec -it homeassistant pip install uk-fuel-prices-api
-```
+Keep these secure. You will enter them in Home Assistant during setup.
 
 ### Step 3: Add the Integration
 
@@ -45,34 +40,37 @@ docker exec -it homeassistant pip install uk-fuel-prices-api
 
 ### Step 4: Configure
 
-1. **Update Interval**: Enter how often to check prices in seconds
+1. **Fuel Finder API Client ID**
+2. **Fuel Finder API Client Secret**
+3. **Location Input Method**: map or address/postcode
+4. **Update Interval**: Enter how often to check prices in seconds
    - Minimum: 300 (5 minutes)
    - Recommended: 3600 (1 hour)
    - Maximum: 86400 (24 hours)
 
-2. **Location**: Click on the map to set your monitoring location
+5. **Location**: Click on the map (or enter address/postcode)
    - Defaults to your Home Assistant location
    - You can select any location in the UK
 
-3. **Radius**: Enter search radius in kilometers (1-50)
-   - Recommended: 5-10 km for urban areas
+6. **Radius**: Enter search radius in miles (0.5-31)
+   - Recommended: 3-6 miles for urban areas
    - Larger radius for rural areas
 
-4. **Fuel Types**: Select which fuel types to monitor
+7. **Fuel Types**: Select which fuel types to monitor
    - E10 (Standard unleaded)
    - E5 (Super unleaded)
    - B7 (Diesel)
    - SDV (Super diesel)
 
-5. Click **Submit**
+8. Click **Submit**
 
 ### Step 5: View Your Sensors
 
 After setup, sensors will be created:
-- `sensor.cheapest_e10_price`
-- `sensor.cheapest_b7_price`
-- `sensor.cheapest_e5_price`
-- `sensor.cheapest_sdv_price`
+- `sensor.fuel_price_uk_[location]_cheapest_e10`
+- `sensor.fuel_price_uk_[location]_cheapest_b7`
+- `sensor.fuel_price_uk_[location]_cheapest_e5`
+- `sensor.fuel_price_uk_[location]_cheapest_sdv`
 
 Each sensor shows:
 - **State**: Cheapest price in £/L
@@ -86,15 +84,18 @@ Add this to your dashboard to see prices:
 type: entities
 title: Cheapest Fuel Prices
 entities:
-  - entity: sensor.cheapest_e10_price
+   - entity: sensor.fuel_price_uk_home_3_mi_cheapest_e10
     name: Unleaded (E10)
     icon: mdi:gas-station
     secondary_info: last-updated
-  - entity: sensor.cheapest_b7_price
+   - entity: sensor.fuel_price_uk_home_3_mi_cheapest_b7
     name: Diesel (B7)
     icon: mdi:gas-station
     secondary_info: last-updated
 ```
+
+Note: Standard `entities` cards do not evaluate Jinja templates in `secondary_info`.
+Use custom cards (for example `custom:template-entity-row`) if you want attribute templating in row text.
 
 ## Troubleshooting
 
@@ -103,17 +104,17 @@ entities:
 2. Verify the integration is loaded: **Developer Tools** → **Services** → look for `fuel_prices_uk`
 3. Try restarting Home Assistant
 
-### "Could not load uk-fuel-prices-api" Error
-Run this in your HA environment:
-```bash
-pip install uk-fuel-prices-api geopy
-```
+### "Invalid API credentials" Error
+
+- Re-check your Fuel Finder `client_id` and `client_secret`
+- Confirm you created an Information Recipient app (not trader submission credentials)
+- Try creating a fresh token in the Fuel Finder portal and update the integration options
 
 ### Sensors Show "Unavailable"
 1. Wait for the first update (check your update interval)
 2. Try increasing the search radius
 3. Verify you have internet connectivity
-4. Check if there are stations in your area on [gov.uk/guidance/access-fuel-price-data](https://www.gov.uk/guidance/access-fuel-price-data)
+4. Verify Fuel Finder service availability in your area from the [Fuel Finder developer docs](https://www.developer.fuel-finder.service.gov.uk/public-api)
 
 ### Update Configuration
 To change settings:

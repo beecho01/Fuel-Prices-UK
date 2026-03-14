@@ -36,7 +36,7 @@ You should see:
 ```
 [custom_components.fuel_prices_uk] Setting up Fuel Prices UK config entry: <entry_id>
 [custom_components.fuel_prices_uk] Update interval set to: <interval>
-[custom_components.fuel_prices_uk] Initializing coordinator with location=..., radius=..., fuel_types=..., update_interval=...
+[custom_components.fuel_prices_uk] Initialising coordinator with location=..., radius=..., fuel_types=..., update_interval=...
 ```
 
 ### Data Updates
@@ -114,7 +114,7 @@ To force an immediate update without waiting for the update interval:
 ```
 2025-11-21 10:00:00 INFO [custom_components.fuel_prices_uk] Setting up Fuel Prices UK config entry: abc123
 2025-11-21 10:00:00 INFO [custom_components.fuel_prices_uk] Update interval set to: 1:00:00
-2025-11-21 10:00:00 INFO [custom_components.fuel_prices_uk] Initializing coordinator with location={'latitude': 51.5074, 'longitude': -0.1278}, radius=5.0 km, fuel_types=['E10', 'B7'], update_interval=1:00:00
+2025-11-21 10:00:00 INFO [custom_components.fuel_prices_uk] Initialising coordinator with location={'latitude': 51.5074, 'longitude': -0.1278}, radius=5.0 km, fuel_types=['E10', 'B7'], update_interval=1:00:00
 2025-11-21 10:00:01 INFO [custom_components.fuel_prices_uk] Starting data update cycle
 2025-11-21 10:00:01 INFO [custom_components.fuel_prices_uk] Search coordinates: lat=51.5074, lon=-0.1278
 2025-11-21 10:00:01 INFO [custom_components.fuel_prices_uk] Fuel types to search: ['E10', 'B7']

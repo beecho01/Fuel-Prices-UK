@@ -1,32 +1,45 @@
 flowchart-elk LR
-    A(["Start Config Flow"]) --> B{"User Configuration: Select an Option"}
-    H["Create Sensor/Sensors"] --> J(["End Config Flow"])
-    B -- Identify Stations within a Radius --> C["Step: Radius Configuration"]
-    B -- Select a Specific Station --> D["Step: Specific Station Selection"]
-    C -- Invalid radius --> F["Error: Invalid Radius"]
-    F --> C
-    C -- Valid radius --> E["Step: Station Configuration"]
-    D -- No station --> G["Error: No Station"]
-    G --> D
-    D -- Valid station --> E
-    E -- Valid configuration --> H
-    E -- Invalid configuration --> I["Error: No Valid Output"]
-    I -- Retry --> B
-    I -- Abort --> J
-    C@{ shape: rounded}
-    D@{ shape: rounded}
-    F@{ shape: rounded}
-    E@{ shape: rounded}
-     A:::process
-     B:::process
-     H:::success
-     J:::process
-     C:::process
-     D:::process
-     F:::error
-     E:::process
-     G:::error
-     I:::error
+    subgraph CF["Initial Config Flow"]
+        A(["Start Config Flow"]) --> B["Step: User\nSelect Location Method\nEnter API Client ID + Secret"]
+        B -- "Invalid API credentials" --> C["Error: invalid_api_credentials"]
+        C --> B
+
+        B -- "Map" --> D["Step: location_map\n(update interval, radius, map location, fuel types)"]
+        B -- "Address/Postcode" --> E["Step: location_address\n(update interval, radius, address, fuel types)"]
+
+        D -- "Invalid interval/radius/fuel/location" --> F["Errors: invalid_update_interval / invalid_radius / no_fuel_type_selected / invalid_location"]
+        F --> D
+        D -- "Valid" --> G["Create Config Entry"]
+
+        E -- "Invalid interval/radius/fuel/address" --> H["Errors: invalid_update_interval / invalid_radius / no_fuel_type_selected / invalid_address"]
+        H --> E
+        E -- "Valid" --> G
+
+        G --> I(["End Config Flow"])
+    end
+
+    subgraph OF["Options Flow"]
+        O1(["Start Options Flow"]) --> O2["Step: init\nChoose location method\nOptionally rotate API credentials"]
+        O2 -- "Invalid credentials" --> O3["Error: invalid_api_credentials"]
+        O3 --> O2
+
+        O2 -- "Map" --> O4["Step: location_map"]
+        O2 -- "Address/Postcode" --> O5["Step: location_address"]
+
+        O4 -- "Invalid location" --> O6["Error: invalid_location"]
+        O6 --> O4
+        O4 -- "Valid" --> O7["Create Options Entry"]
+
+        O5 -- "Invalid interval/radius/fuel/address" --> O8["Errors: invalid_update_interval / invalid_radius / no_fuel_type_selected / invalid_address"]
+        O8 --> O5
+        O5 -- "Valid" --> O7
+
+        O7 --> O9(["End Options Flow"])
+    end
+
     classDef error fill:#FFCDD2,stroke:#E57373,stroke-width:2px
     classDef success fill:#C8E6C9,stroke:#81C784,stroke-width:2px
     classDef process fill:#BBDEFB,stroke:#64B5F6,stroke-width:2px
+
+    class A,B,D,E,G,I,O1,O2,O4,O5,O7,O9 process
+    class C,F,H,O3,O6,O8 error

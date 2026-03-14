@@ -12,6 +12,8 @@ import homeassistant.helpers.config_validation as cv
 from .const import (
     DOMAIN,
     SCHEMA_VERSION,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
     CONF_UPDATE_INTERVAL,
     CONF_STATIONS,
     CONF_FUELTYPES,
@@ -28,9 +30,15 @@ from .const import (
     MILES_TO_KM,
     KM_TO_MILES,
 )
+from .api_client import async_validate_api_credentials
 from .location import get_lat_lon
 
 _LOGGER = logging.getLogger(__name__)
+
+LOCATION_METHOD_OPTIONS = {
+    "map": "Drop a pin on a map",
+    "address": "Enter a postcode or address",
+}
 
 
 class SchemaCreationError(HomeAssistantError):
@@ -117,11 +125,48 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._location_method = None
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step - choose location input method."""
+        """Handle the initial step - credentials and location input method."""
         _LOGGER.debug("[config_flow][step_user] Started - choosing location method")
+        self._errors = {}
         
         if user_input is not None:
-            self._location_method = user_input[CONF_LOCATION_METHOD]
+            client_id = str(user_input.get(CONF_CLIENT_ID, "")).strip()
+            client_secret = str(user_input.get(CONF_CLIENT_SECRET, "")).strip()
+
+            if not client_id or not client_secret:
+                self._errors["base"] = "invalid_api_credentials"
+            else:
+                credentials_valid = await async_validate_api_credentials(
+                    self.hass,
+                    client_id,
+                    client_secret,
+                )
+                if not credentials_valid:
+                    self._errors["base"] = "invalid_api_credentials"
+
+            if self._errors:
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema({
+                        vol.Required(
+                            CONF_SEARCH_METHOD,
+                            default=user_input.get(CONF_SEARCH_METHOD, "map"),
+                        ): vol.In(LOCATION_METHOD_OPTIONS),
+                        vol.Required(
+                            CONF_CLIENT_ID,
+                            default=user_input.get(CONF_CLIENT_ID, ""),
+                        ): cv.string,
+                        vol.Required(CONF_CLIENT_SECRET): selector({"text": {"type": "password"}}),
+                    }),
+                    errors=self._errors,
+                    description_placeholders={
+                        "info": "Choose how you want to specify your location and provide your Fuel Finder API credentials.",
+                    },
+                )
+
+            self._data[CONF_CLIENT_ID] = client_id
+            self._data[CONF_CLIENT_SECRET] = client_secret
+            self._location_method = user_input[CONF_SEARCH_METHOD]
             _LOGGER.debug("[config_flow][step_user] Selected method: %s", self._location_method)
             
             if self._location_method == "map":
@@ -132,13 +177,12 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(CONF_LOCATION_METHOD, default="map"): vol.In({
-                    "map": "Map (select on map)",
-                    "address": "Address or Postcode (text input)"
-                })
+                vol.Required(CONF_SEARCH_METHOD, default="map"): vol.In(LOCATION_METHOD_OPTIONS),
+                vol.Required(CONF_CLIENT_ID): cv.string,
+                vol.Required(CONF_CLIENT_SECRET): selector({"text": {"type": "password"}}),
             }),
             description_placeholders={
-                "info": "Choose how you want to specify your location."
+                "info": "Choose how you want to specify your location and provide your Fuel Finder API credentials."
             },
         )
 
@@ -188,6 +232,8 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
             # Store the configuration (radius stored in km for API)
             self._data = {
+                CONF_CLIENT_ID: self._data.get(CONF_CLIENT_ID),
+                CONF_CLIENT_SECRET: self._data.get(CONF_CLIENT_SECRET),
                 CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
                 CONF_LOCATION: {
                     "latitude": latitude,
@@ -287,6 +333,8 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
             # Store the configuration (radius stored in km for API)
             self._data = {
+                CONF_CLIENT_ID: self._data.get(CONF_CLIENT_ID),
+                CONF_CLIENT_SECRET: self._data.get(CONF_CLIENT_SECRET),
                 CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
                 CONF_LOCATION: {
                     "latitude": lat,
@@ -350,14 +398,62 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
         """Initialize options flow."""
         super().__init__(config_entry)
         self._errors = {}
+        self._resolved_client_id = str(config_entry.data.get(CONF_CLIENT_ID, "")).strip()
+        self._resolved_client_secret = str(config_entry.data.get(CONF_CLIENT_SECRET, "")).strip()
 
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
-        """Manage the options - choose location method."""
+        """Manage the options - choose location method and optional credential updates."""
         # Get current location method (default to map if not set for backwards compatibility)
         current_method = self.config_entry.data.get(CONF_LOCATION_METHOD, "map")
         
         if user_input is not None:
-            if user_input[CONF_LOCATION_METHOD] == "map":
+            self._errors = {}
+
+            proposed_client_id = str(user_input.get(CONF_CLIENT_ID, "")).strip()
+            proposed_client_secret = str(user_input.get(CONF_CLIENT_SECRET, "")).strip()
+
+            if proposed_client_id:
+                self._resolved_client_id = proposed_client_id
+            if proposed_client_secret:
+                self._resolved_client_secret = proposed_client_secret
+
+            if not self._resolved_client_id or not self._resolved_client_secret:
+                self._errors["base"] = "invalid_api_credentials"
+            else:
+                credentials_changed = (
+                    self._resolved_client_id != str(self.config_entry.data.get(CONF_CLIENT_ID, "")).strip()
+                    or bool(proposed_client_secret)
+                )
+                if credentials_changed:
+                    credentials_valid = await async_validate_api_credentials(
+                        self.hass,
+                        self._resolved_client_id,
+                        self._resolved_client_secret,
+                    )
+                    if not credentials_valid:
+                        self._errors["base"] = "invalid_api_credentials"
+
+            if self._errors:
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=vol.Schema({
+                        vol.Required(
+                            CONF_SEARCH_METHOD,
+                            default=user_input.get(CONF_SEARCH_METHOD, current_method),
+                        ): vol.In(LOCATION_METHOD_OPTIONS),
+                        vol.Required(
+                            CONF_CLIENT_ID,
+                            default=user_input.get(CONF_CLIENT_ID, self._resolved_client_id),
+                        ): cv.string,
+                        vol.Optional(CONF_CLIENT_SECRET, default=""): selector({"text": {"type": "password"}}),
+                    }),
+                    errors=self._errors,
+                    description_placeholders={
+                        "info": "Choose how you want to update your location and optionally rotate your Fuel Finder API credentials.",
+                    },
+                )
+
+            if user_input[CONF_SEARCH_METHOD] == "map":
                 return await self.async_step_location_map()
             else:
                 return await self.async_step_location_address()
@@ -365,14 +461,17 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
-                vol.Required(CONF_LOCATION_METHOD, default=current_method): vol.In({
-                    "map": "Map (select on map)",
-                    "address": "Address or Postcode (text input)"
-                })
+                vol.Required(CONF_SEARCH_METHOD, default=current_method): vol.In(LOCATION_METHOD_OPTIONS),
+                vol.Required(
+                    CONF_CLIENT_ID,
+                    default=self._resolved_client_id,
+                ): cv.string,
+                vol.Optional(CONF_CLIENT_SECRET, default=""): selector({"text": {"type": "password"}}),
             }),
             description_placeholders={
-                "info": "Choose how you want to update your location."
+                "info": "Choose how you want to update your location and optionally rotate your Fuel Finder API credentials."
             },
+            errors=self._errors,
         )
 
     async def async_step_location_map(self, user_input=None) -> ConfigFlowResult:
@@ -394,6 +493,8 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
             else:
                 # Preserve existing data and update with new values
                 updated_data = dict(self.config_entry.data)
+                updated_data[CONF_CLIENT_ID] = self._resolved_client_id
+                updated_data[CONF_CLIENT_SECRET] = self._resolved_client_secret
                 updated_data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
                 updated_data[CONF_LOCATION] = {
                     "latitude": latitude,
@@ -476,6 +577,8 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
 
                 # Preserve existing data and update with new values
                 updated_data = dict(self.config_entry.data)
+                updated_data[CONF_CLIENT_ID] = self._resolved_client_id
+                updated_data[CONF_CLIENT_SECRET] = self._resolved_client_secret
                 updated_data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
                 updated_data[CONF_LOCATION] = {
                     "latitude": lat,
