@@ -46,7 +46,6 @@ DATE_FORMATS = (
 )
 
 CACHE_SECONDS = 3600
-BATCH_SIZE = 500
 MAX_BATCHES = 80
 MIN_REQUEST_INTERVAL_SECONDS = 2.05
 DEFAULT_TIMEOUT_SECONDS = 20
@@ -248,12 +247,17 @@ class FuelPricesAPI:
     ) -> List[Dict[str, Any]]:
         records: List[Dict[str, Any]] = []
         batch_number = 1
+        previous_signature: Optional[Tuple[int, str, str]] = None
+        total_batches_hint: Optional[int] = None
         while batch_number <= MAX_BATCHES:
             params: Dict[str, Any] = {"batch-number": batch_number}
             if effective_start:
                 params["effective-start-timestamp"] = effective_start
 
             payload = await self._api_get(endpoint, params=params)
+            if total_batches_hint is None:
+                total_batches_hint = _extract_total_batches_hint(payload)
+
             data = _extract_records_from_payload(payload, endpoint)
             if data is None:
                 if batch_number == 1:
@@ -266,10 +270,22 @@ class FuelPricesAPI:
             batch_records = data
             if not batch_records:
                 break
+
+            batch_signature = _build_batch_signature(batch_records)
+            if previous_signature is not None and batch_signature == previous_signature:
+                _LOGGER.warning(
+                    "Stopping paging %s at batch %s due to repeated payload signature",
+                    endpoint,
+                    batch_number,
+                )
+                break
+
             records.extend(batch_records)
 
-            if len(batch_records) < BATCH_SIZE:
+            if total_batches_hint is not None and batch_number >= total_batches_hint:
                 break
+
+            previous_signature = batch_signature
             batch_number += 1
 
         if batch_number > MAX_BATCHES:
@@ -403,7 +419,7 @@ class FuelPricesAPI:
 
     def _merge_station_info(self, rows: List[Dict[str, Any]]) -> None:
         for row in rows:
-            node_id = str(row.get("node_id") or "").strip()
+            node_id = _extract_station_identifier(row)
             if not node_id:
                 continue
 
@@ -451,8 +467,10 @@ class FuelPricesAPI:
             self._station_index[node_id] = existing
 
     def _merge_station_prices(self, rows: List[Dict[str, Any]]) -> None:
+        stations_touched = 0
+        price_points_written = 0
         for row in rows:
-            node_id = str(row.get("node_id") or "").strip()
+            node_id = _extract_station_identifier(row)
             if not node_id:
                 continue
 
@@ -472,35 +490,61 @@ class FuelPricesAPI:
             prices: Dict[str, Any] = station_prices if isinstance(station_prices, dict) else {}
             last_updated = station.get("last_updated") if isinstance(station.get("last_updated"), str) else None
 
-            raw_fuel_prices = row.get("fuel_prices")
-            fuel_prices: List[Any] = raw_fuel_prices if isinstance(raw_fuel_prices, list) else []
-            for fuel_entry in fuel_prices:
-                if not isinstance(fuel_entry, dict):
+            for fuel_entry in _extract_fuel_entries_from_row(row):
+                source_fuel_type = _extract_source_fuel_type(fuel_entry)
+                if not source_fuel_type:
                     continue
 
-                source_fuel_type = str(fuel_entry.get("fuel_type") or "").upper()
                 target_fuel_type = FUEL_TYPE_MAP.get(source_fuel_type)
                 if not target_fuel_type:
                     continue
 
-                parsed_price = coerce_price(fuel_entry.get("price"))
+                parsed_price = _extract_fuel_entry_price(fuel_entry)
                 if parsed_price is None:
                     continue
 
-                price_last_updated = _parse_datetime(fuel_entry.get("price_last_updated"))
-                effective_timestamp = _parse_datetime(fuel_entry.get("price_change_effective_timestamp"))
+                price_last_updated = _parse_datetime(
+                    _first_present(
+                        fuel_entry,
+                        "price_last_updated",
+                        "priceLastUpdated",
+                        "last_updated",
+                        "lastUpdated",
+                        "updated_at",
+                        "updatedAt",
+                    )
+                )
+                effective_timestamp = _parse_datetime(
+                    _first_present(
+                        fuel_entry,
+                        "price_change_effective_timestamp",
+                        "priceChangeEffectiveTimestamp",
+                        "effective_timestamp",
+                        "effectiveTimestamp",
+                    )
+                )
                 prices[target_fuel_type] = {
                     "price": parsed_price,
                     "source_fuel_type": source_fuel_type,
                     "last_updated": price_last_updated,
                     "price_change_effective_timestamp": effective_timestamp,
                 }
+                price_points_written += 1
                 last_updated = _latest_iso(last_updated, price_last_updated)
 
             station["prices"] = prices
             station["last_updated"] = last_updated
             station["source_endpoint"] = f"{self._base_url}{PFS_PRICES_ENDPOINT}"
             self._station_index[node_id] = station
+            stations_touched += 1
+
+        if rows:
+            _LOGGER.debug(
+                "Merged fuel prices: rows=%s, stations_touched=%s, price_points=%s",
+                len(rows),
+                stations_touched,
+                price_points_written,
+            )
 
 
 async def async_validate_api_credentials(
@@ -692,7 +736,17 @@ def _extract_records_from_payload(payload: Any, endpoint: str) -> Optional[List[
 
     expected_keys = {
         PFS_INFO_ENDPOINT: {"node_id", "location", "trading_name", "brand_name"},
-        PFS_PRICES_ENDPOINT: {"node_id", "fuel_prices"},
+        PFS_PRICES_ENDPOINT: {
+            "node_id",
+            "site_id",
+            "id",
+            "fuel_prices",
+            "fuelPrices",
+            "prices",
+            "fuel_type",
+            "fuelType",
+            "price",
+        },
     }
     endpoint_keys = expected_keys.get(endpoint, set())
 
@@ -716,3 +770,185 @@ def _describe_payload_shape(payload: Any) -> str:
     if isinstance(payload, dict):
         return f"dict keys={sorted(payload.keys())}"
     return type(payload).__name__
+
+
+def _extract_station_identifier(row: Dict[str, Any]) -> str:
+    for key in ("node_id", "site_id", "id", "station_id", "pfs_id"):
+        value = row.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _extract_fuel_entries_from_row(row: Dict[str, Any]) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+
+    for key in ("fuel_prices", "fuelPrices", "prices", "fuel_price_data", "fuelPriceData"):
+        container = row.get(key)
+        if isinstance(container, list):
+            entries.extend(item for item in container if isinstance(item, dict))
+        elif isinstance(container, dict):
+            entries.extend(_expand_fuel_price_dict(container))
+
+    row_fuel_type = _extract_source_fuel_type(row)
+    if row_fuel_type and _extract_fuel_entry_price(row) is not None:
+        entries.append(dict(row))
+
+    entries.extend(_extract_flat_fuel_entries(row))
+    return entries
+
+
+def _extract_flat_fuel_entries(row: Dict[str, Any]) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    row_last_updated = _first_present(
+        row,
+        "price_last_updated",
+        "priceLastUpdated",
+        "last_updated",
+        "lastUpdated",
+        "updated_at",
+        "updatedAt",
+    )
+    row_effective = _first_present(
+        row,
+        "price_change_effective_timestamp",
+        "priceChangeEffectiveTimestamp",
+        "effective_timestamp",
+        "effectiveTimestamp",
+    )
+
+    for key, value in row.items():
+        source_fuel_type = _normalise_source_fuel_type_key(key)
+        if not source_fuel_type:
+            continue
+
+        if isinstance(value, dict):
+            entry = dict(value)
+            entry.setdefault("fuel_type", source_fuel_type)
+            if row_last_updated is not None:
+                entry.setdefault("price_last_updated", row_last_updated)
+            if row_effective is not None:
+                entry.setdefault("price_change_effective_timestamp", row_effective)
+        else:
+            entry = {
+                "fuel_type": source_fuel_type,
+                "price": value,
+                "price_last_updated": row_last_updated,
+                "price_change_effective_timestamp": row_effective,
+            }
+        entries.append(entry)
+
+    return entries
+
+
+def _expand_fuel_price_dict(container: Dict[str, Any]) -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    for fuel_key, value in container.items():
+        source_fuel_type = _normalise_source_fuel_type_key(fuel_key)
+        if not source_fuel_type:
+            continue
+
+        if isinstance(value, dict):
+            entry = dict(value)
+            entry.setdefault("fuel_type", source_fuel_type)
+        else:
+            entry = {
+                "fuel_type": source_fuel_type,
+                "price": value,
+            }
+        entries.append(entry)
+    return entries
+
+
+def _extract_source_fuel_type(entry: Dict[str, Any]) -> Optional[str]:
+    for key in ("fuel_type", "fuelType", "type", "grade", "product", "fuel"):
+        value = entry.get(key)
+        if value is None:
+            continue
+        normalized = _normalise_source_fuel_type_key(str(value))
+        if normalized:
+            return normalized
+    return None
+
+
+def _normalise_source_fuel_type_key(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    key = str(value).strip().upper().replace("-", "_").replace(" ", "_")
+    for suffix in ("_PRICE", "_PENCE", "_PPL"):
+        if key.endswith(suffix):
+            key = key[: -len(suffix)]
+
+    aliases = {
+        "DIESEL": "B7",
+        "PREMIUM_DIESEL": "B7_PREMIUM",
+        "UNLEADED": "E10",
+        "PREMIUM_UNLEADED": "E5",
+    }
+    key = aliases.get(key, key)
+    if key in FUEL_TYPE_MAP:
+        return key
+    return None
+
+
+def _extract_fuel_entry_price(entry: Dict[str, Any]) -> Optional[float]:
+    for key in (
+        "price",
+        "value",
+        "pump_price",
+        "pumpPrice",
+        "pence_per_litre",
+        "pencePerLitre",
+        "amount",
+    ):
+        if key not in entry:
+            continue
+        parsed = coerce_price(entry.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _first_present(payload: Dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = payload.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _extract_total_batches_hint(payload: Any) -> Optional[int]:
+    if not isinstance(payload, dict):
+        return None
+
+    candidate_values: List[Any] = []
+    for key in ("total_batches", "total_pages", "totalPages", "last_page"):
+        if key in payload:
+            candidate_values.append(payload.get(key))
+
+    for container_key in ("pagination", "meta", "metadata", "page"):
+        container = payload.get(container_key)
+        if isinstance(container, dict):
+            for key in ("total_batches", "total_pages", "totalPages", "last_page"):
+                if key in container:
+                    candidate_values.append(container.get(key))
+
+    for candidate in candidate_values:
+        try:
+            number = int(candidate)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            return number
+    return None
+
+
+def _build_batch_signature(rows: List[Dict[str, Any]]) -> Tuple[int, str, str]:
+    first = rows[0] if rows else {}
+    last = rows[-1] if rows else {}
+    first_id = _extract_station_identifier(first) or repr(sorted(first.keys()))
+    last_id = _extract_station_identifier(last) or repr(sorted(last.keys()))
+    return (len(rows), first_id, last_id)
