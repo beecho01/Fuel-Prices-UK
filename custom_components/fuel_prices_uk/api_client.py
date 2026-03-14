@@ -254,15 +254,16 @@ class FuelPricesAPI:
                 params["effective-start-timestamp"] = effective_start
 
             payload = await self._api_get(endpoint, params=params)
-            data = payload.get("data") if isinstance(payload, dict) else None
-            if not isinstance(data, list):
+            data = _extract_records_from_payload(payload, endpoint)
+            if data is None:
                 if batch_number == 1:
+                    payload_shape = _describe_payload_shape(payload)
                     raise RuntimeError(
-                        f"Unexpected response shape from {endpoint}; expected object with list in data"
+                        f"Unexpected response shape from {endpoint}; expected record list in payload (shape={payload_shape})"
                     )
                 break
 
-            batch_records = [item for item in data if isinstance(item, dict)]
+            batch_records = data
             if not batch_records:
                 break
             records.extend(batch_records)
@@ -279,9 +280,9 @@ class FuelPricesAPI:
             )
         return records
 
-    async def _api_get(self, endpoint: str, *, params: Dict[str, Any]) -> Dict[str, Any]:
+    async def _api_get(self, endpoint: str, *, params: Dict[str, Any]) -> Any:
         timeout = ClientTimeout(total=DEFAULT_TIMEOUT_SECONDS)
-        response_payload: Dict[str, Any] = {}
+        response_payload: Any = {}
 
         for attempt in (1, 2):
             token = await self._get_access_token(force_refresh=(attempt == 2))
@@ -592,7 +593,10 @@ def _format_address(location: Dict[str, Any]) -> str:
     return ", ".join(cleaned)
 
 
-def _extract_api_error(payload: Dict[str, Any]) -> Optional[str]:
+def _extract_api_error(payload: Any) -> Optional[str]:
+    if isinstance(payload, str) and payload.strip():
+        return payload.strip()
+
     if not isinstance(payload, dict):
         return None
 
@@ -658,11 +662,57 @@ def _extract_retry_after_seconds(response: Any) -> float:
         return DEFAULT_429_BACKOFF_SECONDS
 
 
-async def _parse_json_response(response) -> Dict[str, Any]:
+async def _parse_json_response(response) -> Any:
     try:
         payload = await response.json(content_type=None)
     except Exception:
         return {}
+    return payload
+
+
+def _extract_records_from_payload(payload: Any, endpoint: str) -> Optional[List[Dict[str, Any]]]:
+    list_candidates: List[List[Dict[str, Any]]] = []
+
+    def _collect(value: Any, depth: int = 0) -> None:
+        if depth > 3 or value is None:
+            return
+        if isinstance(value, list):
+            rows = [item for item in value if isinstance(item, dict)]
+            if rows:
+                list_candidates.append(rows)
+            return
+        if isinstance(value, dict):
+            for child in value.values():
+                _collect(child, depth + 1)
+
+    _collect(payload)
+
+    if not list_candidates:
+        return None
+
+    expected_keys = {
+        PFS_INFO_ENDPOINT: {"node_id", "location", "trading_name", "brand_name"},
+        PFS_PRICES_ENDPOINT: {"node_id", "fuel_prices"},
+    }
+    endpoint_keys = expected_keys.get(endpoint, set())
+
+    for rows in list_candidates:
+        if any(any(key in row for key in endpoint_keys) for row in rows):
+            return rows
+
+    return list_candidates[0]
+
+
+def _describe_payload_shape(payload: Any) -> str:
+    if payload is None:
+        return "none"
+    if isinstance(payload, list):
+        if not payload:
+            return "list[empty]"
+        first = payload[0]
+        if isinstance(first, dict):
+            return f"list[dict] keys={sorted(first.keys())}"
+        return f"list[{type(first).__name__}]"
     if isinstance(payload, dict):
-        return payload
-    return {}
+        return f"dict keys={sorted(payload.keys())}"
+    return type(payload).__name__
