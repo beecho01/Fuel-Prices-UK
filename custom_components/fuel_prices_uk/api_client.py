@@ -62,6 +62,16 @@ class StationRecord:
     longitude: float
 
 
+class ApiHttpError(RuntimeError):
+    """Raised when Fuel Finder API responds with an HTTP error."""
+
+    def __init__(self, endpoint: str, status_code: int, message: str) -> None:
+        super().__init__(f"GET {endpoint} failed ({status_code}): {message}")
+        self.endpoint = endpoint
+        self.status_code = status_code
+        self.message = message
+
+
 class FuelPricesAPI:
     """Fetches and caches Fuel Finder station and fuel price data."""
 
@@ -254,7 +264,18 @@ class FuelPricesAPI:
             if effective_start:
                 params["effective-start-timestamp"] = effective_start
 
-            payload = await self._api_get(endpoint, params=params)
+            try:
+                payload = await self._api_get(endpoint, params=params)
+            except ApiHttpError as err:
+                if err.status_code == 404 and batch_number > 1:
+                    _LOGGER.debug(
+                        "Stopping paging %s at batch %s due to 404 (treated as end of pages)",
+                        endpoint,
+                        batch_number,
+                    )
+                    break
+                raise
+
             if total_batches_hint is None:
                 total_batches_hint = _extract_total_batches_hint(payload)
 
@@ -337,7 +358,7 @@ class FuelPricesAPI:
                                 )
                             elif response.status >= 400:
                                 message = _extract_api_error(response_payload) or response.reason
-                                raise RuntimeError(f"GET {endpoint} failed ({response.status}): {message}")
+                                raise ApiHttpError(endpoint, response.status, str(message))
                             else:
                                 return response_payload
                 except (ClientError, asyncio.TimeoutError) as err:
