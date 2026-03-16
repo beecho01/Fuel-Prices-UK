@@ -34,8 +34,8 @@ PLATFORMS = ["sensor"]
 def _entry_config(entry: ConfigEntry) -> Dict[str, Any]:
     """Return merged config where options override data."""
     config = dict(entry.data)
-    if isinstance(entry.options, dict):
-        config.update(entry.options)
+    if entry.options:
+        config.update(dict(entry.options))
     return config
 
 
