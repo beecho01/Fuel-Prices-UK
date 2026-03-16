@@ -39,6 +39,14 @@ ATTRIBUTION = "Data provided by UK Government Fuel Price open data scheme"
 from .price_parser import coerce_price
 
 
+def _entry_config(entry: ConfigEntry) -> Dict[str, Any]:
+    """Return merged config where options override data."""
+    config = dict(entry.data)
+    if isinstance(entry.options, dict):
+        config.update(entry.options)
+    return config
+
+
 def _base_attributes(fuel_type: str, price_rank: int) -> Dict[str, Any]:
     return {
         ATTR_ATTRIBUTION: ATTRIBUTION,
@@ -73,14 +81,15 @@ def _radius_to_miles(radius_km: Any) -> float:
 
 
 def _derive_location_strings(entry: ConfigEntry) -> Tuple[str, str]:
-    radius_mi = _radius_to_miles(entry.data.get(CONF_RADIUS, 5))
+    entry_config = _entry_config(entry)
+    radius_mi = _radius_to_miles(entry_config.get(CONF_RADIUS, 5))
     radius_text = f"{radius_mi:g} mi"
 
-    address = entry.data.get(CONF_ADDRESS)
+    address = entry_config.get(CONF_ADDRESS)
     if isinstance(address, str) and address.strip():
         base_label = address.strip()
     else:
-        location = entry.data.get(CONF_LOCATION) or {}
+        location = entry_config.get(CONF_LOCATION) or {}
         latitude = location.get("latitude")
         longitude = location.get("longitude")
         if isinstance(latitude, (int, float)) and isinstance(longitude, (int, float)):
@@ -97,9 +106,10 @@ def _derive_location_strings(entry: ConfigEntry) -> Tuple[str, str]:
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the sensor platform."""
     try:
+        entry_config = _entry_config(entry)
         coordinator = hass.data[DOMAIN][entry.entry_id]
-        fuel_types: List[str] = entry.data.get(CONF_FUELTYPES, [])
-        cheapest_count_raw = entry.data.get(CONF_CHEAPEST_COUNT)
+        fuel_types: List[str] = entry_config.get(CONF_FUELTYPES, [])
+        cheapest_count_raw = entry_config.get(CONF_CHEAPEST_COUNT)
         default_count = DEFAULT_CHEAPEST_COUNT if cheapest_count_raw is not None else 1
         cheapest_count = _coerce_cheapest_count(cheapest_count_raw, default_value=default_count)
         _LOGGER.info(

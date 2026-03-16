@@ -31,6 +31,14 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["sensor"]
 
 
+def _entry_config(entry: ConfigEntry) -> Dict[str, Any]:
+    """Return merged config where options override data."""
+    config = dict(entry.data)
+    if isinstance(entry.options, dict):
+        config.update(entry.options)
+    return config
+
+
 async def async_setup(hass: HomeAssistant, _config: Mapping[str, Any]) -> bool:
     """Set up the Fuel Prices UK integration."""
     # We don't support YAML-based configuration, so return True
@@ -41,13 +49,14 @@ async def async_setup(hass: HomeAssistant, _config: Mapping[str, Any]) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up Fuel Prices UK from a config entry."""
     _LOGGER.info("Setting up Fuel Prices UK config entry: %s", entry.entry_id)
-    _LOGGER.debug("Entry data: %s", _redacted_entry_data(entry.data))
+    entry_config = _entry_config(entry)
+    _LOGGER.debug("Entry data: %s", _redacted_entry_data(entry_config))
 
     hass.data.setdefault(DOMAIN, {})
     domain_data = hass.data[DOMAIN]
 
-    client_id = str(entry.data.get(CONF_CLIENT_ID, "")).strip()
-    client_secret = str(entry.data.get(CONF_CLIENT_SECRET, "")).strip()
+    client_id = str(entry_config.get(CONF_CLIENT_ID, "")).strip()
+    client_secret = str(entry_config.get(CONF_CLIENT_SECRET, "")).strip()
     if not client_id or not client_secret:
         raise ConfigEntryNotReady(
             "Fuel Finder API credentials are missing. Reconfigure the integration with a valid client ID and secret."
@@ -59,7 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         client_secret=client_secret,
     )
 
-    update_interval = timedelta(seconds=entry.data[CONF_UPDATE_INTERVAL])
+    update_interval = timedelta(seconds=entry_config[CONF_UPDATE_INTERVAL])
     _LOGGER.info("Update interval set to: %s", update_interval)
 
     coordinator = FuelPricesDataUpdateCoordinator(
@@ -107,12 +116,13 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]
 
     def __init__(self, hass, entry: ConfigEntry, update_interval: timedelta, api_client: FuelPricesAPI):
         """Initialize."""
+        entry_config = _entry_config(entry)
         self.hass = hass
         self.entry = entry
-        self.stations = entry.data.get(CONF_STATIONS, [])
-        self.location = entry.data.get(CONF_LOCATION)
-        self.radius = entry.data.get(CONF_RADIUS, 5)
-        self.fuel_types = entry.data.get(CONF_FUELTYPES, ["E10", "B7"])
+        self.stations = entry_config.get(CONF_STATIONS, [])
+        self.location = entry_config.get(CONF_LOCATION)
+        self.radius = entry_config.get(CONF_RADIUS, 5)
+        self.fuel_types = entry_config.get(CONF_FUELTYPES, ["E10", "B7"])
         self.update_interval = update_interval
         self._logger = _LOGGER
         self.api_client = api_client
