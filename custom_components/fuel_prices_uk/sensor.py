@@ -21,11 +21,15 @@ from .const import (
     ATTR_POSTCODE,
     ATTR_STATION_NAME,
     CONF_ADDRESS,
+    CONF_CHEAPEST_COUNT,
     CONF_FUELTYPES,
     CONF_LOCATION,
     CONF_RADIUS,
+    DEFAULT_CHEAPEST_COUNT,
     DOMAIN,
     KM_TO_MILES,
+    MAX_CHEAPEST_COUNT,
+    MIN_CHEAPEST_COUNT,
     ENTRY_TITLE,
 )
 
@@ -35,11 +39,29 @@ ATTRIBUTION = "Data provided by UK Government Fuel Price open data scheme"
 from .price_parser import coerce_price
 
 
-def _base_attributes(fuel_type: str) -> Dict[str, Any]:
+def _base_attributes(fuel_type: str, price_rank: int) -> Dict[str, Any]:
     return {
         ATTR_ATTRIBUTION: ATTRIBUTION,
         "fuel_type": fuel_type,
+        "price_rank": price_rank,
+        "price_rank_label": _ordinal(price_rank),
     }
+
+
+def _ordinal(rank: int) -> str:
+    if rank % 100 in (11, 12, 13):
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(rank % 10, "th")
+    return f"{rank}{suffix}"
+
+
+def _coerce_cheapest_count(value: Any, *, default_value: int) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        count = default_value
+    return max(MIN_CHEAPEST_COUNT, min(MAX_CHEAPEST_COUNT, count))
 
 
 def _radius_to_miles(radius_km: Any) -> float:
@@ -77,15 +99,23 @@ async def async_setup_entry(hass, entry, async_add_entities):
     try:
         coordinator = hass.data[DOMAIN][entry.entry_id]
         fuel_types: List[str] = entry.data.get(CONF_FUELTYPES, [])
-        _LOGGER.info("Setting up sensors for fuel types: %s", fuel_types)
+        cheapest_count_raw = entry.data.get(CONF_CHEAPEST_COUNT)
+        default_count = DEFAULT_CHEAPEST_COUNT if cheapest_count_raw is not None else 1
+        cheapest_count = _coerce_cheapest_count(cheapest_count_raw, default_value=default_count)
+        _LOGGER.info(
+            "Setting up sensors for fuel types: %s (rank_count=%s)",
+            fuel_types,
+            cheapest_count,
+        )
 
         if not fuel_types:
             _LOGGER.error("No fuel types configured in entry data")
             return
 
         entities = [
-            CheapestFuelPriceSensor(coordinator, entry, fuel_type)
+            CheapestFuelPriceSensor(coordinator, entry, fuel_type, rank)
             for fuel_type in fuel_types
+            for rank in range(1, cheapest_count + 1)
         ]
 
         _LOGGER.info("Created %s fuel price sensors", len(entities))
@@ -99,21 +129,29 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[misc]
     """Representation of a Cheapest Fuel Price Sensor."""
 
-    def __init__(self, coordinator, entry: ConfigEntry, fuel_type: str) -> None:
+    def __init__(self, coordinator, entry: ConfigEntry, fuel_type: str, price_rank: int = 1) -> None:
         super().__init__(coordinator)
         self._fuel_type = fuel_type
+        self._price_rank = max(1, int(price_rank))
+        self._rank_label = _ordinal(self._price_rank)
         location_label, location_slug = _derive_location_strings(entry)
         fuel_slug = slugify(fuel_type) or fuel_type.lower()
-        self.entity_id = f"sensor.fuel_price_uk_{location_slug}_cheapest_{fuel_slug}"
-        self._attr_name = f"{ENTRY_TITLE} ({location_label}) - Cheapest {fuel_type}"
-        self._attr_unique_id = f"{entry.entry_id}_{fuel_type}_cheapest"
+        if self._price_rank == 1:
+            # Keep legacy identifiers for the primary cheapest sensor.
+            self.entity_id = f"sensor.fuel_price_uk_{location_slug}_cheapest_{fuel_slug}"
+            self._attr_unique_id = f"{entry.entry_id}_{fuel_type}_cheapest"
+            self._attr_name = f"{ENTRY_TITLE} ({location_label}) - Cheapest {fuel_type}"
+        else:
+            self.entity_id = f"sensor.fuel_price_uk_{location_slug}_rank_{self._price_rank}_cheapest_{fuel_slug}"
+            self._attr_unique_id = f"{entry.entry_id}_{fuel_type}_cheapest_{self._price_rank}"
+            self._attr_name = f"{ENTRY_TITLE} ({location_label}) - {self._rank_label} Cheapest {fuel_type}"
         self._location_label = location_label
         self._attr_device_class = SensorDeviceClass.MONETARY
         self._attr_native_unit_of_measurement = "GBP"
         self._attr_suggested_display_precision = 3
         self._attr_icon = "mdi:gas-station"
         self._station_data: Optional[Dict[str, Any]] = None
-        self._attr_extra_state_attributes = _base_attributes(fuel_type)
+        self._attr_extra_state_attributes = _base_attributes(fuel_type, self._price_rank)
         self._attr_native_value = None
         self._attr_available = False
 
@@ -128,11 +166,12 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
         if not isinstance(data, list):
             self._station_data = None
             self._attr_native_value = None
-            self._attr_extra_state_attributes = _base_attributes(self._fuel_type)
+            self._attr_extra_state_attributes = _base_attributes(self._fuel_type, self._price_rank)
             self._attr_available = False
             _LOGGER.debug(
-                "[sensor][%s] Coordinator payload type %s is not list-like; sensor unavailable",
+                "[sensor][%s][rank=%s] Coordinator payload type %s is not list-like; sensor unavailable",
                 self._fuel_type,
+                self._price_rank,
                 type(self.coordinator.data).__name__,
             )
             return
@@ -140,8 +179,7 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
         total_stations = len(data)
         price_candidates = 0
         price_matches = 0
-        cheapest_price: Optional[float] = None
-        cheapest_station: Optional[Dict[str, Any]] = None
+        ranked_candidates: List[Tuple[float, Dict[str, Any]]] = []
 
         for station in data:
             if not isinstance(station, dict):
@@ -158,40 +196,54 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
                 continue
 
             price_matches += 1
-            if cheapest_price is None or price_value < cheapest_price:
-                cheapest_price = price_value
-                cheapest_station = station
+            ranked_candidates.append((price_value, station))
 
-        self._station_data = cheapest_station if isinstance(cheapest_station, dict) else None
-        self._attr_native_value = cheapest_price
+        ranked_candidates.sort(
+            key=lambda item: (
+                item[0],
+                str(item[1].get("site_id") or item[1].get("id") or ""),
+            )
+        )
+
+        selected_price: Optional[float] = None
+        selected_station: Optional[Dict[str, Any]] = None
+        if len(ranked_candidates) >= self._price_rank:
+            selected_price, selected_station = ranked_candidates[self._price_rank - 1]
+
+        self._station_data = selected_station if isinstance(selected_station, dict) else None
+        self._attr_native_value = selected_price
         self._rebuild_attributes()
-        self._attr_available = bool(self.coordinator.last_update_success and cheapest_price is not None)
+        self._attr_available = bool(self.coordinator.last_update_success and selected_price is not None)
 
-        if cheapest_price is None:
+        if selected_price is None:
             if total_stations == 0:
                 _LOGGER.warning(
-                    "[sensor][%s] Coordinator returned no stations; sensor state remains unknown",
+                    "[sensor][%s][%s] Coordinator returned no stations; sensor state remains unknown",
                     self._fuel_type,
+                    self._rank_label,
                 )
             elif price_matches == 0:
                 _LOGGER.warning(
-                    "[sensor][%s] Checked %s stations (%s price entries) but none exposed %s pricing",
+                    "[sensor][%s][%s] Checked %s stations (%s price entries) but none exposed %s pricing",
                     self._fuel_type,
+                    self._rank_label,
                     total_stations,
                     price_candidates,
                     self._fuel_type,
                 )
             else:
                 _LOGGER.debug(
-                    "[sensor][%s] Coordinator updated; price comparisons made=%s but no cheapest result",
+                    "[sensor][%s][%s] Coordinator updated; ranked prices available=%s but requested rank was missing",
                     self._fuel_type,
+                    self._rank_label,
                     price_matches,
                 )
         else:
             _LOGGER.debug(
-                "[sensor][%s] Cheapest price=%.3f from station=%s (stations=%s candidates=%s matches=%s)",
+                "[sensor][%s][%s] Price=%.3f from station=%s (stations=%s candidates=%s matches=%s)",
                 self._fuel_type,
-                cheapest_price,
+                self._rank_label,
+                selected_price,
                 self._station_data.get("site_id") if self._station_data else "<unknown>",
                 total_stations,
                 price_candidates,
@@ -199,7 +251,7 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
             )
 
     def _rebuild_attributes(self) -> None:
-        attributes = _base_attributes(self._fuel_type)
+        attributes = _base_attributes(self._fuel_type, self._price_rank)
         station = self._station_data
         if not station or not isinstance(station, dict):
             self._attr_extra_state_attributes = attributes

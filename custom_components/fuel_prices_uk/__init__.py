@@ -1,4 +1,5 @@
 """The Fuel Prices UK integration."""
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any, Dict, List, Mapping
@@ -68,12 +69,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         api_client=api_client,
     )
 
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except Exception as err:
-        _LOGGER.error("Failed to fetch initial data: %s", err, exc_info=True)
-        raise ConfigEntryNotReady(f"Failed to fetch initial fuel price data: {err}") from err
-
     domain_data[entry.entry_id] = coordinator
 
     # Use the updated method
@@ -81,6 +76,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     # Register update listener to reload on options change
     entry.async_on_unload(entry.add_update_listener(update_listener))
+
+    # Perform first refresh in the background so setup is not blocked by slow API paging.
+    coordinator.start_startup_refresh()
 
     _LOGGER.info("Successfully set up Fuel Prices UK integration")
     return True
@@ -94,6 +92,10 @@ async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Unload a config entry."""
     _LOGGER.debug("Unloading config entry: %s", entry.entry_id)
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if isinstance(coordinator, FuelPricesDataUpdateCoordinator):
+        coordinator.cancel_startup_refresh()
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
@@ -114,6 +116,7 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]
         self.update_interval = update_interval
         self._logger = _LOGGER
         self.api_client = api_client
+        self._startup_refresh_task: asyncio.Task[None] | None = None
 
         _LOGGER.info(
             "[coordinator][__init__] Initialising with location=%s, radius=%s km, fuel_types=%s, update_interval=%s",
@@ -128,6 +131,63 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]
             update_interval=update_interval,
             always_update=False,  # Only update if data changes to avoid unnecessary state writes
         )
+
+    def start_startup_refresh(self) -> None:
+        """Kick off one startup refresh without blocking config entry setup."""
+        if self._startup_refresh_task and not self._startup_refresh_task.done():
+            return
+
+        self._startup_refresh_task = self.hass.async_create_task(
+            self._async_run_startup_refresh(),
+            name=f"{DOMAIN}_{self.entry.entry_id}_startup_refresh",
+        )
+
+    def cancel_startup_refresh(self) -> None:
+        """Cancel startup refresh task if it is still running."""
+        if self._startup_refresh_task and not self._startup_refresh_task.done():
+            self._startup_refresh_task.cancel()
+
+    async def _async_run_startup_refresh(self) -> None:
+        """Run first refresh in background so entities can appear immediately."""
+        _LOGGER.info("[coordinator][startup_refresh] Starting background initial refresh")
+        try:
+            initial_success = await self._async_run_startup_refresh_attempt("initial")
+            if initial_success:
+                _LOGGER.info("[coordinator][startup_refresh] Initial refresh completed successfully")
+                return
+
+            _LOGGER.warning(
+                "[coordinator][startup_refresh] Initial refresh was unsuccessful; triggering immediate retry"
+            )
+            retry_success = await self._async_run_startup_refresh_attempt("retry")
+            if retry_success:
+                _LOGGER.info("[coordinator][startup_refresh] Immediate retry completed successfully")
+            else:
+                _LOGGER.warning(
+                    "[coordinator][startup_refresh] Immediate retry was also unsuccessful; waiting for scheduled refresh"
+                )
+        except asyncio.CancelledError:
+            _LOGGER.debug("[coordinator][startup_refresh] Background initial refresh cancelled")
+            raise
+        finally:
+            self._startup_refresh_task = None
+
+    async def _async_run_startup_refresh_attempt(self, phase: str) -> bool:
+        """Execute one startup refresh attempt and report whether coordinator data update succeeded."""
+        try:
+            await self.async_refresh()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # pragma: no cover - defensive; async_refresh usually handles failures
+            _LOGGER.error(
+                "[coordinator][startup_refresh] %s attempt raised unexpected exception: %s",
+                phase,
+                err,
+                exc_info=True,
+            )
+            return False
+
+        return bool(self.last_update_success)
 
     async def _async_update_data(self) -> List[Dict[str, Any]]:
         """Fetch data from fuel price sources."""
@@ -179,7 +239,10 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]
             _LOGGER.info("Successfully fetched %s stations", len(stations_data))
             _LOGGER.debug("Station data: %s", stations_data[:2] if len(stations_data) > 2 else stations_data)
             return stations_data
-            
+
+        except asyncio.CancelledError:
+            _LOGGER.debug("[coordinator][_async_update_data] Update cycle cancelled")
+            raise
         except Exception as err:
             _LOGGER.error("Error fetching data: %s", err, exc_info=True)
             raise UpdateFailed(f"Error fetching data: {err}") from err

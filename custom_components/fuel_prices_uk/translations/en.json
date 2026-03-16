@@ -18,13 +18,15 @@
           "update_interval": "Update Interval (seconds)",
           "location": "Location",
           "radius": "Search Radius (miles)",
-          "fuel_types": "Fuel Types to Monitor"
+          "fuel_types": "Fuel Types to Monitor",
+          "cheapest_count": "Number of Cheapest Options (1-5)"
         },
         "data_description": {
           "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
           "location": "Your location for finding nearby fuel stations",
           "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
-          "fuel_types": "Which fuel types to track prices for"
+          "fuel_types": "Which fuel types to track prices for",
+          "cheapest_count": "How many ranked cheapest stations to expose per fuel type"
         }
       },
       "location_address": {
@@ -34,13 +36,15 @@
           "update_interval": "Update Interval (seconds)",
           "address": "Postcode, Address, or Location",
           "radius": "Search Radius (miles)",
-          "fuel_types": "Fuel Types to Monitor"
+          "fuel_types": "Fuel Types to Monitor",
+          "cheapest_count": "Number of Cheapest Options (1-5)"
         },
         "data_description": {
           "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
           "address": "UK postcode (e.g. SW1A 1AA), full address, or location name",
           "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
-          "fuel_types": "Which fuel types to track prices for"
+          "fuel_types": "Which fuel types to track prices for",
+          "cheapest_count": "How many ranked cheapest stations to expose per fuel type"
         }
       }
     },
@@ -49,6 +53,7 @@
       "invalid_update_interval": "Update interval must be at least 300 seconds (5 minutes)",
       "invalid_api_credentials": "Fuel Finder API credentials are invalid. Check your Client ID and Client Secret.",
       "no_fuel_type_selected": "Please select at least one fuel type to monitor",
+      "invalid_cheapest_count": "Choose between 1 and 5 cheapest options",
       "invalid_address": "Could not find location. Please check your postcode/address and try again.",
       "invalid_location": "Please drop a pin on the map before continuing",
       "unknown": "An unexpected error occurred"
@@ -60,6 +65,7 @@
       "invalid_update_interval": "Update interval must be at least 300 seconds (5 minutes)",
       "invalid_api_credentials": "Fuel Finder API credentials are invalid. Check your Client ID and Client Secret.",
       "no_fuel_type_selected": "Please select at least one fuel type to monitor",
+      "invalid_cheapest_count": "Choose between 1 and 5 cheapest options",
       "invalid_address": "Could not find location. Please check your postcode/address and try again.",
       "invalid_location": "Please drop a pin on the map before continuing",
       "unknown": "An unexpected error occurred"
@@ -81,13 +87,15 @@
           "update_interval": "Update Interval (seconds)",
           "radius": "Search Radius (miles)",
           "location": "Location",
-          "fuel_types": "Fuel Types to Monitor"
+          "fuel_types": "Fuel Types to Monitor",
+          "cheapest_count": "Number of Cheapest Options (1-5)"
         },
         "data_description": {
           "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
           "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
           "location": "Your location for finding nearby fuel stations",
-          "fuel_types": "Which fuel types to track prices for"
+          "fuel_types": "Which fuel types to track prices for",
+          "cheapest_count": "How many ranked cheapest stations to expose per fuel type"
         }
       },
       "location_address": {
@@ -97,13 +105,15 @@
           "update_interval": "Update Interval (seconds)",
           "radius": "Search Radius (miles)",
           "address": "Postcode, Address, or Location",
-          "fuel_types": "Fuel Types to Monitor"
+          "fuel_types": "Fuel Types to Monitor",
+          "cheapest_count": "Number of Cheapest Options (1-5)"
         },
         "data_description": {
           "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
           "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
           "address": "UK postcode (e.g. SW1A 1AA), full address, or location name",
-          "fuel_types": "Which fuel types to track prices for"
+          "fuel_types": "Which fuel types to track prices for",
+          "cheapest_count": "How many ranked cheapest stations to expose per fuel type"
         }
       }
     }

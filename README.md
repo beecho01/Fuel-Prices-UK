@@ -29,6 +29,7 @@
 - ✅ **Automatic Updates** - Configurable update intervals from 5 minutes to 24 hours
 - ✅ **Easy Setup** - Simple configuration flow with map-based location selection
 - ✅ **Cheapest Price Sensors** - Automatically shows the cheapest price for each fuel type
+- ✅ **Ranked Cheapest Options** - Optionally expose 2nd, 3rd (up to 5th) cheapest stations per fuel type
 
 ## Supported Fuel Types
 
@@ -102,21 +103,31 @@ After setup, you can update these settings by clicking **Configure** on the inte
 - Update interval
 - Search radius
 - Fuel types to monitor
+- Number of cheapest options to expose per fuel type (1-5)
 
 ## Sensors
 
-The integration creates one sensor for each fuel type you've selected:
+The integration creates ranked sensors for each fuel type you've selected.
 
 ### Cheapest Price Sensors
 
-**Sensor Name:** `sensor.fuel_price_uk_[location]_[distance]_cheapest_[fuel_type]`
+The integration creates ranked sensors per selected fuel type based on your **Number of Cheapest Options** setting.
+
+- Rank 1 keeps the existing entity naming style and represents the cheapest station.
+- Higher ranks expose next-best alternatives (for example 2nd and 3rd cheapest).
+
+**Rank 1 Sensor Name:** `sensor.fuel_price_uk_[location]_[distance]_cheapest_[fuel_type]`
+
+**Higher Rank Sensor Name:** `sensor.fuel_price_uk_[location]_[distance]_rank_[n]_cheapest_[fuel_type]`
 
 Example: `sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10`
 
-**State:** Current cheapest price in £/L to 3 decimal places (e.g. £1.379)
+**State:** Current price for that rank in £/L to 3 decimal places (e.g. £1.379)
 
 **Attributes:**
 - `fuel_type`: The type of fuel (E10, E5, B7, SDV)
+- `price_rank`: Rank position (1 = cheapest, 2 = second cheapest, etc.)
+- `price_rank_label`: Human-readable rank label (for example `1st`, `2nd`, `3rd`)
 - `address`: Full address of the station
 - `postcode`: Postcode of the station
 - `brand`: Retailer brand (e.g., "Tesco", "Shell")
@@ -152,6 +163,27 @@ entities:
 
 The standard Home Assistant `entities` card does not evaluate Jinja templates in `secondary_info`.
 If you want `brand` + `address` rendered inline, use a custom row card such as `custom:template-entity-row` from HACS.
+
+### Example Ranked Card (1st, 2nd, 3rd)
+
+Use this if you enabled **Number of Cheapest Options** as 3 or higher.
+
+```yaml
+type: entities
+title: E10 Cheapest Alternatives
+entities:
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
+    name: E10 1st Cheapest
+    secondary_info: last-updated
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_rank_2_cheapest_e10
+    name: E10 2nd Cheapest
+    secondary_info: last-updated
+  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_rank_3_cheapest_e10
+    name: E10 3rd Cheapest
+    secondary_info: last-updated
+```
+
+You can repeat the same pattern for other fuel types (`b7`, `e5`, `sdv`) by changing the entity suffix.
 
 ### Example Map Card
 Show fuel stations on a map:
@@ -242,6 +274,15 @@ Note: Most retailers update their prices once per day, typically overnight.
 - Ensure you have Python 3.9 or higher
 - Try reinstalling the integration
 - Restart Home Assistant
+
+### Setup Completes But Sensors Stay Unavailable Briefly
+
+During setup, the integration now creates entities first and performs the initial API sync in the background.
+If the Fuel Finder API is slow, sensors can remain unavailable for a short period before prices appear.
+
+- Wait a few minutes and then refresh entity states
+- Check logs for `[coordinator][startup_refresh]` messages
+- If the first sync fails, the scheduled refresh cycle will retry automatically
 
 ## Development & Verification
 

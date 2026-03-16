@@ -266,6 +266,13 @@ class FuelPricesAPI:
 
             try:
                 payload = await self._api_get(endpoint, params=params)
+            except asyncio.CancelledError:
+                _LOGGER.debug(
+                    "Fuel Finder paging cancelled for %s at batch %s",
+                    endpoint,
+                    batch_number,
+                )
+                raise
             except ApiHttpError as err:
                 if err.status_code == 404 and batch_number > 1:
                     _LOGGER.debug(
@@ -361,11 +368,22 @@ class FuelPricesAPI:
                                 raise ApiHttpError(endpoint, response.status, str(message))
                             else:
                                 return response_payload
+                except asyncio.CancelledError:
+                    _LOGGER.debug("Fuel Finder request cancelled: endpoint=%s params=%s", endpoint, params)
+                    raise
                 except (ClientError, asyncio.TimeoutError) as err:
                     raise RuntimeError(f"GET {endpoint} failed: {err}") from err
 
                 if backoff_seconds is not None:
-                    await asyncio.sleep(backoff_seconds)
+                    try:
+                        await asyncio.sleep(backoff_seconds)
+                    except asyncio.CancelledError:
+                        _LOGGER.debug(
+                            "Fuel Finder backoff sleep cancelled for %s after 429 (retry=%s)",
+                            endpoint,
+                            retry_count + 1,
+                        )
+                        raise
 
             if token_rejected and attempt == 1:
                 continue
@@ -377,7 +395,12 @@ class FuelPricesAPI:
         if self._last_request_at is not None:
             elapsed = now - self._last_request_at
             if elapsed < MIN_REQUEST_INTERVAL_SECONDS:
-                await asyncio.sleep(MIN_REQUEST_INTERVAL_SECONDS - elapsed)
+                delay = MIN_REQUEST_INTERVAL_SECONDS - elapsed
+                try:
+                    await asyncio.sleep(delay)
+                except asyncio.CancelledError:
+                    _LOGGER.debug("Fuel Finder rate-limit sleep cancelled (remaining_delay=%.2fs)", delay)
+                    raise
         self._last_request_at = asyncio.get_running_loop().time()
 
     async def _get_access_token(self, *, force_refresh: bool = False) -> str:
@@ -409,6 +432,9 @@ class FuelPricesAPI:
                             raise RuntimeError(
                                 f"Fuel Finder token request failed ({response.status}): {message}"
                             )
+            except asyncio.CancelledError:
+                _LOGGER.debug("Fuel Finder token request cancelled")
+                raise
             except (ClientError, asyncio.TimeoutError) as err:
                 raise RuntimeError(f"Fuel Finder token request failed: {err}") from err
 
@@ -730,6 +756,8 @@ def _extract_retry_after_seconds(response: Any) -> float:
 async def _parse_json_response(response) -> Any:
     try:
         payload = await response.json(content_type=None)
+    except asyncio.CancelledError:
+        raise
     except Exception:
         return {}
     return payload

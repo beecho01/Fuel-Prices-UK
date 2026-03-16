@@ -14,6 +14,7 @@ CONF_SEARCH_METHOD = "search_method"
 CONF_SITE_ID = "site_id"
 CONF_CLIENT_ID = "client_id"
 CONF_CLIENT_SECRET = "client_secret"
+CONF_CHEAPEST_COUNT = "cheapest_count"
 
 ATTR_LAST_UPDATED = "last_updated"
 ATTR_RETAILER = "retailer"
@@ -31,6 +32,9 @@ NAME = "name"
 ENTRY_TITLE = "Fuel Prices UK"
 PLACEHOLDER_KEY_STATION_NAME = "station_name"
 DEFAULT_UPDATE_INTERVAL = 3600  # 1 hour in seconds
+DEFAULT_CHEAPEST_COUNT = 3
+MIN_CHEAPEST_COUNT = 1
+MAX_CHEAPEST_COUNT = 5
 
 # Supported fuel types based on UK government data
 FUEL_TYPE_E10 = "E10"

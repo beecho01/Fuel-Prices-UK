@@ -23,10 +23,14 @@ from .const import (
     CONF_RADIUS,
     CONF_SEARCH_METHOD,
     CONF_SITE_ID,
+    CONF_CHEAPEST_COUNT,
     ENTRY_TITLE,
     NAME,
     FUEL_TYPES,
     DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_CHEAPEST_COUNT,
+    MIN_CHEAPEST_COUNT,
+    MAX_CHEAPEST_COUNT,
     MILES_TO_KM,
     KM_TO_MILES,
 )
@@ -108,6 +112,10 @@ def main_config_schema(user_input=None, hass=None):
                 CONF_FUELTYPES,
                 default=user_input.get(CONF_FUELTYPES, ["E10", "B7"]),
             ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+            vol.Required(
+                CONF_CHEAPEST_COUNT,
+                default=user_input.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT),
+            ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
         }
     )
 
@@ -211,6 +219,14 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             if not user_input.get(CONF_FUELTYPES):
                 raise NoFuelTypeSelected("At least one fuel type must be selected")
 
+            if (
+                user_input[CONF_CHEAPEST_COUNT] < MIN_CHEAPEST_COUNT
+                or user_input[CONF_CHEAPEST_COUNT] > MAX_CHEAPEST_COUNT
+            ):
+                raise InvalidCheapestCount(
+                    f"Cheapest options must be between {MIN_CHEAPEST_COUNT} and {MAX_CHEAPEST_COUNT}"
+                )
+
             # Convert radius from miles to km for storage
             radius_miles = user_input[CONF_RADIUS]
             radius_km = round(radius_miles * MILES_TO_KM, 1)
@@ -242,6 +258,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_LOCATION_METHOD: "map",
                 CONF_RADIUS: radius_km,  # Store in km
                 CONF_FUELTYPES: user_input[CONF_FUELTYPES],
+                CONF_CHEAPEST_COUNT: user_input[CONF_CHEAPEST_COUNT],
                 CONF_STATIONS: [],  # Will be populated with actual stations during runtime
             }
 
@@ -257,6 +274,8 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             self._errors[CONF_RADIUS] = "invalid_radius"
         except NoFuelTypeSelected:
             self._errors[CONF_FUELTYPES] = "no_fuel_type_selected"
+        except InvalidCheapestCount:
+            self._errors[CONF_CHEAPEST_COUNT] = "invalid_cheapest_count"
         except InvalidLocation:
             self._errors[CONF_LOCATION] = "invalid_location"
         except Exception as e:
@@ -298,6 +317,10 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_FUELTYPES,
                         default=["E10", "B7"],
                     ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                    vol.Required(
+                        CONF_CHEAPEST_COUNT,
+                        default=DEFAULT_CHEAPEST_COUNT,
+                    ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
                 }),
                 description_placeholders={
                     "info": "Enter a UK postcode, address, or location name. We'll find the coordinates for you."
@@ -314,6 +337,14 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             
             if not user_input.get(CONF_FUELTYPES):
                 raise NoFuelTypeSelected("At least one fuel type must be selected")
+
+            if (
+                user_input[CONF_CHEAPEST_COUNT] < MIN_CHEAPEST_COUNT
+                or user_input[CONF_CHEAPEST_COUNT] > MAX_CHEAPEST_COUNT
+            ):
+                raise InvalidCheapestCount(
+                    f"Cheapest options must be between {MIN_CHEAPEST_COUNT} and {MAX_CHEAPEST_COUNT}"
+                )
 
             # Convert address/postcode to coordinates
             address = user_input[CONF_ADDRESS]
@@ -344,6 +375,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_ADDRESS: address,  # Store original address for reference
                 CONF_RADIUS: radius_km,  # Store in km
                 CONF_FUELTYPES: user_input[CONF_FUELTYPES],
+                CONF_CHEAPEST_COUNT: user_input[CONF_CHEAPEST_COUNT],
                 CONF_STATIONS: [],  # Will be populated with actual stations during runtime
             }
 
@@ -358,6 +390,8 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             self._errors[CONF_RADIUS] = "invalid_radius"
         except NoFuelTypeSelected:
             self._errors[CONF_FUELTYPES] = "no_fuel_type_selected"
+        except InvalidCheapestCount:
+            self._errors[CONF_CHEAPEST_COUNT] = "invalid_cheapest_count"
         except InvalidAddress:
             self._errors[CONF_ADDRESS] = "invalid_address"
         except Exception as e:
@@ -380,6 +414,10 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_FUELTYPES,
                     default=user_input.get(CONF_FUELTYPES, ["E10", "B7"]),
                 ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                vol.Required(
+                    CONF_CHEAPEST_COUNT,
+                    default=user_input.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT),
+                ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
             }),
             errors=self._errors,
         )
@@ -503,6 +541,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                 updated_data[CONF_LOCATION_METHOD] = "map"
                 updated_data[CONF_RADIUS] = radius_km
                 updated_data[CONF_FUELTYPES] = user_input[CONF_FUELTYPES]
+                updated_data[CONF_CHEAPEST_COUNT] = user_input[CONF_CHEAPEST_COUNT]
 
                 # Remove address if it was set before
                 if CONF_ADDRESS in updated_data:
@@ -538,6 +577,10 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                         CONF_FUELTYPES,
                         default=self.config_entry.data.get(CONF_FUELTYPES, ["E10", "B7"]),
                     ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                    vol.Required(
+                        CONF_CHEAPEST_COUNT,
+                        default=self.config_entry.data.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
                 }
             ),
             errors=self._errors,
@@ -558,6 +601,14 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                 
                 if not user_input.get(CONF_FUELTYPES):
                     raise NoFuelTypeSelected("At least one fuel type must be selected")
+
+                if (
+                    user_input[CONF_CHEAPEST_COUNT] < MIN_CHEAPEST_COUNT
+                    or user_input[CONF_CHEAPEST_COUNT] > MAX_CHEAPEST_COUNT
+                ):
+                    raise InvalidCheapestCount(
+                        f"Cheapest options must be between {MIN_CHEAPEST_COUNT} and {MAX_CHEAPEST_COUNT}"
+                    )
 
                 # Convert address/postcode to coordinates
                 address = user_input[CONF_ADDRESS]
@@ -588,6 +639,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                 updated_data[CONF_ADDRESS] = address
                 updated_data[CONF_RADIUS] = radius_km
                 updated_data[CONF_FUELTYPES] = user_input[CONF_FUELTYPES]
+                updated_data[CONF_CHEAPEST_COUNT] = user_input[CONF_CHEAPEST_COUNT]
                 
                 return self.async_create_entry(title="", data=updated_data)
 
@@ -597,6 +649,8 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                 self._errors[CONF_RADIUS] = "invalid_radius"
             except NoFuelTypeSelected:
                 self._errors[CONF_FUELTYPES] = "no_fuel_type_selected"
+            except InvalidCheapestCount:
+                self._errors[CONF_CHEAPEST_COUNT] = "invalid_cheapest_count"
             except InvalidAddress:
                 self._errors[CONF_ADDRESS] = "invalid_address"
             except Exception as e:
@@ -631,6 +685,10 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                     CONF_FUELTYPES,
                     default=user_input.get(CONF_FUELTYPES, self.config_entry.data.get(CONF_FUELTYPES, ["E10", "B7"])) if user_input else self.config_entry.data.get(CONF_FUELTYPES, ["E10", "B7"]),
                 ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                vol.Required(
+                    CONF_CHEAPEST_COUNT,
+                    default=user_input.get(CONF_CHEAPEST_COUNT, self.config_entry.data.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT)) if user_input else self.config_entry.data.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT),
+                ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
             }),
             errors=self._errors,
         )
@@ -646,6 +704,10 @@ class InvalidUpdateInterval(HomeAssistantError):
 
 class NoFuelTypeSelected(HomeAssistantError):
     """Error to indicate no fuel type was selected."""
+
+
+class InvalidCheapestCount(HomeAssistantError):
+    """Error to indicate the cheapest options count is invalid."""
 
 
 class InvalidAddress(HomeAssistantError):
