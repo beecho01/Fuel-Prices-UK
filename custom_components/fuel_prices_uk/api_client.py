@@ -50,7 +50,16 @@ MAX_BATCHES = 80
 MIN_REQUEST_INTERVAL_SECONDS = 2.05
 DEFAULT_TIMEOUT_SECONDS = 20
 MAX_429_RETRIES = 3
-DEFAULT_429_BACKOFF_SECONDS = 3.0
+DEFAULT_429_BACKOFF_SECONDS = 5.0
+RATE_LIMIT_BACKOFF_MULTIPLIER = 2.0
+RATE_LIMIT_MAX_BACKOFF_SECONDS = 60.0
+
+# Global rate-limit cooldown shared across all FuelPricesAPI instances.
+# When any instance receives a 429, all instances pause requests until the
+# cooldown elapses, preventing multiple config entries from compounding
+# the rate-limit violation.
+_global_429_cooldown_until: float = 0.0
+_global_429_lock = asyncio.Lock()
 
 
 @dataclass
@@ -201,6 +210,7 @@ class FuelPricesAPI:
         try:
             if is_incremental and incremental_date:
                 stations = await self._fetch_station_info(effective_start=incremental_date)
+                await self._inter_fetch_pause()
                 prices = await self._fetch_station_prices(effective_start=incremental_date)
                 if not stations and not prices:
                     _LOGGER.debug("Fuel Finder incremental refresh reported no station or price updates")
@@ -210,6 +220,7 @@ class FuelPricesAPI:
                 self._merge_station_prices(prices)
             else:
                 stations = await self._fetch_station_info()
+                await self._inter_fetch_pause()
                 prices = await self._fetch_station_prices()
                 new_index: dict[str, dict[str, Any]] = {}
                 self._station_index = new_index
@@ -343,6 +354,7 @@ class FuelPricesAPI:
                 try:
                     async with self._request_lock:
                         await self._respect_rate_limit()
+                        await self._respect_global_429_cooldown()
                         async with self._session.get(url, params=params, timeout=timeout, headers=headers) as response:
                             response_payload = await _parse_json_response(response)
                             if response.status in (401, 403) and attempt == 1:
@@ -356,6 +368,13 @@ class FuelPricesAPI:
                                         f"GET {endpoint} failed (429): rate limit exceeded after retries"
                                     )
                                 backoff_seconds = _extract_retry_after_seconds(response)
+                                # Exponential backoff: multiply by 2^retry_count
+                                backoff_seconds = min(
+                                    backoff_seconds * (RATE_LIMIT_BACKOFF_MULTIPLIER ** retry_count),
+                                    RATE_LIMIT_MAX_BACKOFF_SECONDS,
+                                )
+                                # Set global cooldown so other instances also back off
+                                await self._set_global_429_cooldown(backoff_seconds)
                                 _LOGGER.warning(
                                     "Fuel Finder returned 429 for %s; retrying in %.2fs (attempt %s/%s)",
                                     endpoint,
@@ -403,6 +422,42 @@ class FuelPricesAPI:
                     raise
         self._last_request_at = asyncio.get_running_loop().time()
 
+    @staticmethod
+    async def _respect_global_429_cooldown() -> None:
+        """Wait until the global 429 cooldown period has elapsed."""
+        global _global_429_cooldown_until
+        now = asyncio.get_running_loop().time()
+        remaining = _global_429_cooldown_until - now
+        if remaining > 0:
+            _LOGGER.info(
+                "Fuel Finder global 429 cooldown active; waiting %.2fs before next request",
+                remaining,
+            )
+            try:
+                await asyncio.sleep(remaining)
+            except asyncio.CancelledError:
+                _LOGGER.debug("Fuel Finder global 429 cooldown sleep cancelled")
+                raise
+
+    @staticmethod
+    async def _set_global_429_cooldown(seconds: float) -> None:
+        """Set the global 429 cooldown so all API instances back off."""
+        global _global_429_cooldown_until
+        now = asyncio.get_running_loop().time()
+        new_until = now + seconds
+        # Only extend the cooldown, never shorten it
+        if new_until > _global_429_cooldown_until:
+            _global_429_cooldown_until = new_until
+            _LOGGER.debug("Fuel Finder global 429 cooldown set for %.2fs", seconds)
+
+    @staticmethod
+    async def _inter_fetch_pause() -> None:
+        """Brief pause between major fetch operations (station info → prices) to reduce burst load."""
+        try:
+            await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            raise
+
     async def _get_access_token(self, *, force_refresh: bool = False) -> str:
         if not self._client_id or not self._client_secret:
             raise RuntimeError("Fuel Finder API credentials are missing")
@@ -422,21 +477,50 @@ class FuelPricesAPI:
             }
             token_url = f"{self._base_url}{TOKEN_ENDPOINT}"
 
-            try:
-                async with self._request_lock:
-                    await self._respect_rate_limit()
-                    async with self._session.post(token_url, json=payload, timeout=timeout, headers=headers) as response:
-                        response_payload = await _parse_json_response(response)
-                        if response.status >= 400:
-                            message = _extract_api_error(response_payload) or response.reason
-                            raise RuntimeError(
-                                f"Fuel Finder token request failed ({response.status}): {message}"
-                            )
-            except asyncio.CancelledError:
-                _LOGGER.debug("Fuel Finder token request cancelled")
-                raise
-            except (ClientError, asyncio.TimeoutError) as err:
-                raise RuntimeError(f"Fuel Finder token request failed: {err}") from err
+            response_payload: Any = {}
+            for token_retry in range(MAX_429_RETRIES + 1):
+                try:
+                    async with self._request_lock:
+                        await self._respect_rate_limit()
+                        await self._respect_global_429_cooldown()
+                        async with self._session.post(token_url, json=payload, timeout=timeout, headers=headers) as response:
+                            response_payload = await _parse_json_response(response)
+                            if response.status == 429:
+                                backoff = _extract_retry_after_seconds(response)
+                                backoff = min(
+                                    backoff * (RATE_LIMIT_BACKOFF_MULTIPLIER ** token_retry),
+                                    RATE_LIMIT_MAX_BACKOFF_SECONDS,
+                                )
+                                await self._set_global_429_cooldown(backoff)
+                                if token_retry >= MAX_429_RETRIES:
+                                    raise RuntimeError(
+                                        f"Fuel Finder token request failed (429): rate limit exceeded after retries"
+                                    )
+                                _LOGGER.warning(
+                                    "Fuel Finder token endpoint returned 429; retrying in %.2fs (attempt %s/%s)",
+                                    backoff,
+                                    token_retry + 1,
+                                    MAX_429_RETRIES,
+                                )
+                                try:
+                                    await asyncio.sleep(backoff)
+                                except asyncio.CancelledError:
+                                    _LOGGER.debug("Fuel Finder token 429 backoff cancelled")
+                                    raise
+                                continue
+                            if response.status >= 400:
+                                message = _extract_api_error(response_payload) or response.reason
+                                raise RuntimeError(
+                                    f"Fuel Finder token request failed ({response.status}): {message}"
+                                )
+                except asyncio.CancelledError:
+                    _LOGGER.debug("Fuel Finder token request cancelled")
+                    raise
+                except (ClientError, asyncio.TimeoutError) as err:
+                    raise RuntimeError(f"Fuel Finder token request failed: {err}") from err
+
+                # Success — break out of retry loop
+                break
 
             token_data = response_payload.get("data") if isinstance(response_payload, dict) else None
             if not isinstance(token_data, dict):

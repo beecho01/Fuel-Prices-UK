@@ -194,7 +194,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     entry.async_on_unload(entry.add_update_listener(update_listener))
 
     # Perform first refresh in the background so setup is not blocked by slow API paging.
-    coordinator.start_startup_refresh()
+    # Stagger startup refreshes across config entries to avoid hammering the API
+    # with simultaneous requests when multiple locations are configured.
+    entry_index = len([k for k in domain_data if k != "_entry_counter"])
+    domain_data.setdefault("_entry_counter", 0)
+    domain_data["_entry_counter"] += 1
+    stagger_delay = (domain_data["_entry_counter"] - 1) * 15  # 15s between each entry
+    coordinator.start_startup_refresh(delay_seconds=stagger_delay)
 
     _LOGGER.info("Successfully set up Fuel Prices UK integration")
     return True
@@ -256,13 +262,13 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
             always_update=False,  # Only update if data changes to avoid unnecessary state writes
         )
 
-    def start_startup_refresh(self) -> None:
+    def start_startup_refresh(self, delay_seconds: int = 0) -> None:
         """Kick off one startup refresh without blocking config entry setup."""
         if self._startup_refresh_task and not self._startup_refresh_task.done():
             return
 
         self._startup_refresh_task = self.hass.async_create_task(
-            self._async_run_startup_refresh(),
+            self._async_run_startup_refresh(delay_seconds=delay_seconds),
             name=f"{DOMAIN}_{self.entry.entry_id}_startup_refresh",
         )
 
@@ -271,8 +277,19 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
         if self._startup_refresh_task and not self._startup_refresh_task.done():
             self._startup_refresh_task.cancel()
 
-    async def _async_run_startup_refresh(self) -> None:
+    async def _async_run_startup_refresh(self, delay_seconds: int = 0) -> None:
         """Run first refresh in background so entities can appear immediately."""
+        if delay_seconds > 0:
+            _LOGGER.info(
+                "[coordinator][startup_refresh] Staggering startup by %ds to reduce API load",
+                delay_seconds,
+            )
+            try:
+                await asyncio.sleep(delay_seconds)
+            except asyncio.CancelledError:
+                _LOGGER.debug("[coordinator][startup_refresh] Stagger delay cancelled")
+                raise
+
         _LOGGER.info("[coordinator][startup_refresh] Starting background initial refresh")
         try:
             initial_success = await self._async_run_startup_refresh_attempt("initial")
@@ -281,14 +298,20 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
                 return
 
             _LOGGER.warning(
-                "[coordinator][startup_refresh] Initial refresh was unsuccessful; triggering immediate retry"
+                "[coordinator][startup_refresh] Initial refresh was unsuccessful; waiting 30s before retry"
             )
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                _LOGGER.debug("[coordinator][startup_refresh] Pre-retry delay cancelled")
+                raise
+
             retry_success = await self._async_run_startup_refresh_attempt("retry")
             if retry_success:
-                _LOGGER.info("[coordinator][startup_refresh] Immediate retry completed successfully")
+                _LOGGER.info("[coordinator][startup_refresh] Delayed retry completed successfully")
             else:
                 _LOGGER.warning(
-                    "[coordinator][startup_refresh] Immediate retry was also unsuccessful; waiting for scheduled refresh"
+                    "[coordinator][startup_refresh] Delayed retry was also unsuccessful; waiting for scheduled refresh"
                 )
         except asyncio.CancelledError:
             _LOGGER.debug("[coordinator][startup_refresh] Background initial refresh cancelled")
