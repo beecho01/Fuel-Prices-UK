@@ -1,7 +1,7 @@
 """Location utilities for geocoding and coordinate validation."""
+from __future__ import annotations
 import json
 import logging
-from typing import Dict, Optional, Tuple
 
 import requests
 from geopy import distance
@@ -10,7 +10,7 @@ from geopy.geocoders import Nominatim
 
 _LOGGER = logging.getLogger(__name__)
 
-def get_lat_lon(query: str) -> Tuple[Optional[float], Optional[float]]:
+def get_lat_lon(query: str) -> tuple[float | None, float | None]:
     query = query.strip()
 
     coordinates_check = is_coordinates(query)
@@ -41,7 +41,7 @@ def get_lat_lon(query: str) -> Tuple[Optional[float], Optional[float]]:
     return None, None
 
 
-def is_postcode(query: str) -> Tuple[Optional[float], Optional[float]]:
+def is_postcode(query: str) -> tuple[float | None, float | None]:
     url = f"https://api.postcodes.io/postcodes/{query}"
     result = fetch_postcode_data(url)
 
@@ -51,7 +51,7 @@ def is_postcode(query: str) -> Tuple[Optional[float], Optional[float]]:
     return None, None
 
 
-def is_coordinates(query: str) -> Tuple[Optional[float], Optional[float]]:
+def is_coordinates(query: str) -> tuple[float | None, float | None]:
     try:
         latitude, longitude = map(float, query.split(","))
         if -90 <= latitude <= 90 and -180 <= longitude <= 180:
@@ -61,7 +61,7 @@ def is_coordinates(query: str) -> Tuple[Optional[float], Optional[float]]:
     return None, None
 
 
-def is_location(query: str) -> Tuple[Optional[float], Optional[float]]:
+def is_location(query: str) -> tuple[float | None, float | None]:
     url = f"https://api.postcodes.io/places?limit=10&q={query}"
     results = fetch_postcode_data(url)
 
@@ -85,7 +85,7 @@ def is_location(query: str) -> Tuple[Optional[float], Optional[float]]:
     return None, None
 
 
-def rank_local_type(local_type: Optional[str]) -> int:
+def rank_local_type(local_type: str | None) -> int:
     priority = {
         "City": 1,
         "Town": 2,
@@ -98,7 +98,7 @@ def rank_local_type(local_type: Optional[str]) -> int:
         return 999
     return priority.get(local_type, 999)
 
-def fetch_postcode_data(url: str) -> Optional[dict]:
+def fetch_postcode_data(url: str) -> dict | None:
     response = None
     try:
         response = requests.get(url)
@@ -116,7 +116,7 @@ def fetch_postcode_data(url: str) -> Optional[dict]:
         _LOGGER.error("Postcode - JSON decoding error occurred: %s", json_err)
     return None
 
-def is_within_distance(user_location: Dict[str, float], station_location: Dict[str, float], radius: float = 5, unit: str = 'mi') -> bool:
+def is_within_distance(user_location: dict[str, float], station_location: dict[str, float], radius: float = 5, unit: str = 'mi') -> bool:
     unit = unit.lower()
     if unit not in ('km', 'mi'):
         raise ValueError("Invalid unit. Please use 'km' or 'mi'.")

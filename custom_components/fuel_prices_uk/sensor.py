@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import ATTR_ATTRIBUTION
@@ -24,11 +25,16 @@ from .const import (
     CONF_CHEAPEST_COUNT,
     CONF_FUELTYPES,
     CONF_LOCATION,
+    CONF_MAX_DATA_AGE_DAYS,
+    CONF_NEAREST_COUNT,
     CONF_RADIUS,
     DEFAULT_CHEAPEST_COUNT,
+    DEFAULT_MAX_DATA_AGE_DAYS,
+    DEFAULT_NEAREST_COUNT,
     DOMAIN,
     KM_TO_MILES,
     MAX_CHEAPEST_COUNT,
+    MAX_NEAREST_COUNT,
     MIN_CHEAPEST_COUNT,
     ENTRY_TITLE,
 )
@@ -39,7 +45,7 @@ ATTRIBUTION = "Data provided by UK Government Fuel Price open data scheme"
 from .price_parser import coerce_price
 
 
-def _entry_config(entry: ConfigEntry) -> Dict[str, Any]:
+def _entry_config(entry: ConfigEntry) -> dict[str, Any]:
     """Return merged config where options override data."""
     config = dict(entry.data)
     if entry.options:
@@ -47,7 +53,7 @@ def _entry_config(entry: ConfigEntry) -> Dict[str, Any]:
     return config
 
 
-def _base_attributes(fuel_type: str, price_rank: int) -> Dict[str, Any]:
+def _base_attributes(fuel_type: str, price_rank: int) -> dict[str, Any]:
     return {
         ATTR_ATTRIBUTION: ATTRIBUTION,
         "fuel_type": fuel_type,
@@ -72,6 +78,38 @@ def _coerce_cheapest_count(value: Any, *, default_value: int) -> int:
     return max(MIN_CHEAPEST_COUNT, min(MAX_CHEAPEST_COUNT, count))
 
 
+def _coerce_nearest_count(value: Any) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        count = DEFAULT_NEAREST_COUNT
+    return max(0, min(MAX_NEAREST_COUNT, count))
+
+
+_LAST_UPDATED_FORMATS = (
+    "%d/%m/%Y %H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S%z",
+    "%Y-%m-%dT%H:%M:%SZ",
+    "%Y-%m-%dT%H:%M:%S.%fZ",
+)
+
+
+def _parse_last_updated(value: str | None) -> datetime | None:
+    """Parse a last_updated string into an aware datetime, or return None."""
+    if not value:
+        return None
+    for fmt in _LAST_UPDATED_FORMATS:
+        try:
+            dt = datetime.strptime(value, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            continue
+    return None
+
+
 def _radius_to_miles(radius_km: Any) -> float:
     try:
         radius_value = float(radius_km)
@@ -80,7 +118,7 @@ def _radius_to_miles(radius_km: Any) -> float:
     return round(radius_value * KM_TO_MILES, 1)
 
 
-def _derive_location_strings(entry: ConfigEntry) -> Tuple[str, str]:
+def _derive_location_strings(entry: ConfigEntry) -> tuple[str, str]:
     entry_config = _entry_config(entry)
     radius_mi = _radius_to_miles(entry_config.get(CONF_RADIUS, 5))
     radius_text = f"{radius_mi:g} mi"
@@ -108,7 +146,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     try:
         entry_config = _entry_config(entry)
         coordinator = hass.data[DOMAIN][entry.entry_id]
-        fuel_types: List[str] = entry_config.get(CONF_FUELTYPES, [])
+        fuel_types: list[str] = entry_config.get(CONF_FUELTYPES, [])
         cheapest_count_raw = entry_config.get(CONF_CHEAPEST_COUNT)
         default_count = DEFAULT_CHEAPEST_COUNT if cheapest_count_raw is not None else 1
         cheapest_count = _coerce_cheapest_count(cheapest_count_raw, default_value=default_count)
@@ -122,14 +160,27 @@ async def async_setup_entry(hass, entry, async_add_entities):
             _LOGGER.error("No fuel types configured in entry data")
             return
 
-        entities = [
+        entities: list[CheapestFuelPriceSensor] = [
             CheapestFuelPriceSensor(coordinator, entry, fuel_type, rank)
             for fuel_type in fuel_types
             for rank in range(1, cheapest_count + 1)
         ]
 
+        nearest_count = _coerce_nearest_count(entry_config.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT))
+        if nearest_count > 0:
+            entities += [
+                NearestFuelStationSensor(coordinator, entry, fuel_type, rank)
+                for fuel_type in fuel_types
+                for rank in range(1, nearest_count + 1)
+            ]
+            _LOGGER.info(
+                "Adding nearest-by-distance sensors for fuel types: %s (count=%s)",
+                fuel_types,
+                nearest_count,
+            )
+
         _LOGGER.info("Created %s fuel price sensors", len(entities))
-        async_add_entities(entities, True)
+        async_add_entities(entities, False)
 
     except Exception as err:  # pragma: no cover - defensive
         _LOGGER.error("Failed to set up fuel price sensors: %s", err, exc_info=True)
@@ -160,7 +211,7 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
         self._attr_native_unit_of_measurement = "GBP"
         self._attr_suggested_display_precision = 3
         self._attr_icon = "mdi:gas-station"
-        self._station_data: Optional[Dict[str, Any]] = None
+        self._station_data: dict[str, Any] | None = None
         self._attr_extra_state_attributes = _base_attributes(fuel_type, self._price_rank)
         self._attr_native_value = None
         self._attr_available = False
@@ -189,7 +240,13 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
         total_stations = len(data)
         price_candidates = 0
         price_matches = 0
-        ranked_candidates: List[Tuple[float, Dict[str, Any]]] = []
+        ranked_candidates: list[tuple[float, dict[str, Any]]] = []
+
+        entry_config = _entry_config(self.coordinator.entry)
+        max_data_age_days = int(entry_config.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS))
+        staleness_cutoff: datetime | None = None
+        if max_data_age_days > 0:
+            staleness_cutoff = datetime.now(timezone.utc) - timedelta(days=max_data_age_days)
 
         for station in data:
             if not isinstance(station, dict):
@@ -205,6 +262,19 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
             if price_value is None:
                 continue
 
+            if staleness_cutoff is not None and isinstance(price_entry, dict):
+                lu_raw = price_entry.get("last_updated") or price_entry.get("timestamp")
+                lu_dt = _parse_last_updated(lu_raw)
+                if lu_dt is not None and lu_dt < staleness_cutoff:
+                    _LOGGER.debug(
+                        "[sensor][%s][rank=%s] Skipping stale price for station %s (last_updated=%s)",
+                        self._fuel_type,
+                        self._price_rank,
+                        station.get("site_id"),
+                        lu_raw,
+                    )
+                    continue
+
             price_matches += 1
             ranked_candidates.append((price_value, station))
 
@@ -215,8 +285,8 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
             )
         )
 
-        selected_price: Optional[float] = None
-        selected_station: Optional[Dict[str, Any]] = None
+        selected_price: float | None = None
+        selected_station: dict[str, Any] | None = None
         if len(ranked_candidates) >= self._price_rank:
             selected_price, selected_station = ranked_candidates[self._price_rank - 1]
 
@@ -305,9 +375,9 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
 
         distance_value = station.get("distance")
         if isinstance(distance_value, (int, float)):
-            attributes[ATTR_DISTANCE] = round(distance_value, 2)
+            attributes[ATTR_DISTANCE] = round(distance_value * KM_TO_MILES, 2)
 
-        prices: Dict[str, Any] = {}
+        prices: dict[str, Any] = {}
         station_prices = station.get("prices")
         if isinstance(station_prices, dict):
             prices = station_prices
@@ -326,3 +396,103 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
     def _handle_coordinator_update(self) -> None:
         self._refresh_snapshot()
         super()._handle_coordinator_update()
+
+
+class NearestFuelStationSensor(CheapestFuelPriceSensor):
+    """Sensor showing the price at the Nth nearest station for a given fuel type."""
+
+    def __init__(
+        self,
+        coordinator: Any,
+        entry: ConfigEntry,
+        fuel_type: str,
+        nearest_rank: int = 1,
+    ) -> None:
+        """Initialise with distance-based naming and unique ID."""
+        super().__init__(coordinator, entry, fuel_type, nearest_rank)
+        location_label, location_slug = _derive_location_strings(entry)
+        fuel_slug = slugify(fuel_type) or fuel_type.lower()
+        rank_label = _ordinal(nearest_rank)
+        self.entity_id = (
+            f"sensor.fuel_price_uk_{location_slug}_nearest_{nearest_rank}_{fuel_slug}"
+        )
+        self._attr_unique_id = f"{entry.entry_id}_{fuel_type}_nearest_{nearest_rank}"
+        self._attr_name = (
+            f"{ENTRY_TITLE} ({location_label}) - {rank_label} Nearest {fuel_type}"
+        )
+        self._rank_label = rank_label
+
+    def _refresh_snapshot(self) -> None:
+        data = self.coordinator.data or []
+        if not isinstance(data, list):
+            self._station_data = None
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = _base_attributes(self._fuel_type, self._price_rank)
+            self._attr_available = False
+            return
+
+        entry_config = _entry_config(self.coordinator.entry)
+        max_data_age_days = int(entry_config.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS))
+        staleness_cutoff: datetime | None = None
+        if max_data_age_days > 0:
+            staleness_cutoff = datetime.now(timezone.utc) - timedelta(days=max_data_age_days)
+
+        # Collect stations with a valid price for this fuel type, sorted by distance
+        distance_candidates: list[tuple[float, dict[str, Any]]] = []
+        for station in data:
+            if not isinstance(station, dict):
+                continue
+            prices = station.get("prices")
+            if not isinstance(prices, dict):
+                continue
+            price_entry = prices.get(self._fuel_type)
+            if coerce_price(price_entry) is None:
+                continue
+            if staleness_cutoff is not None and isinstance(price_entry, dict):
+                lu_raw = price_entry.get("last_updated") or price_entry.get("timestamp")
+                lu_dt = _parse_last_updated(lu_raw)
+                if lu_dt is not None and lu_dt < staleness_cutoff:
+                    continue
+            dist = station.get("distance")
+            if not isinstance(dist, (int, float)):
+                continue
+            distance_candidates.append((dist, station))
+
+        # Sort by distance ascending, then by site_id for stability
+        distance_candidates.sort(
+            key=lambda item: (item[0], str(item[1].get("site_id") or ""))
+        )
+
+        selected_price: float | None = None
+        selected_station: dict[str, Any] | None = None
+        if len(distance_candidates) >= self._price_rank:
+            _, selected_station = distance_candidates[self._price_rank - 1]
+            selected_price = coerce_price(
+                selected_station.get("prices", {}).get(self._fuel_type)
+            )
+
+        self._station_data = selected_station if isinstance(selected_station, dict) else None
+        self._attr_native_value = selected_price
+        self._rebuild_attributes()
+        self._attr_available = bool(self.coordinator.last_update_success and selected_price is not None)
+
+        _LOGGER.debug(
+            "[sensor][nearest][%s][rank=%s] selected station=%s dist=%.3f mi price=%s",
+            self._fuel_type,
+            self._price_rank,
+            self._station_data.get("site_id") if self._station_data else "<none>",
+            (self._station_data.get("distance", 0) * KM_TO_MILES) if self._station_data else 0,
+            selected_price,
+        )
+
+    def _rebuild_attributes(self) -> None:
+        """Build attributes using distance_rank instead of price_rank."""
+        super()._rebuild_attributes()
+        attrs = dict(self._attr_extra_state_attributes)
+        price_rank = attrs.pop("price_rank", None)
+        price_rank_label = attrs.pop("price_rank_label", None)
+        if price_rank is not None:
+            attrs["distance_rank"] = price_rank
+        if price_rank_label is not None:
+            attrs["distance_rank_label"] = price_rank_label
+        self._attr_extra_state_attributes = attrs

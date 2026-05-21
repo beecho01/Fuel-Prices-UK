@@ -35,7 +35,7 @@
 
 - **E10** - Standard unleaded petrol (10% ethanol)
 - **E5** - Super unleaded petrol (5% ethanol)
-- **B7** - Standard diesel (7% biodiesel)
+- **B7** - Standard diesel (7% bio-diesel)
 - **SDV** - Super diesel / Premium diesel
 
 ## Fuel Finder API Access
@@ -104,6 +104,142 @@ After setup, you can update these settings by clicking **Configure** on the inte
 - Search radius
 - Fuel types to monitor
 - Number of cheapest options to expose per fuel type (1-5)
+
+---
+
+### Setup via `configuration.yaml`
+
+As an alternative to the UI wizard, you can configure the integration in `configuration.yaml`.
+This is particularly useful for keeping credentials out of the UI by using [Home Assistant secrets](https://www.home-assistant.io/docs/configuration/secrets/) (`!secret`).
+
+> **Note:** On first load, HA reads the YAML block and creates a normal config entry automatically.
+> Once the entry is created you can remove the YAML block — the entry persists independently.
+> If the block remains, HA will silently skip it on subsequent restarts (duplicate detection via unique ID).
+
+#### Configuration reference
+
+| Key | Type | Required | Default | Description |
+|-----|------|----------|---------|-------------|
+| `name` | string | No¹ | — | Human-readable name for this instance. Used as the entry title and to uniquely distinguish multiple instances that share the same API credentials. |
+| `client_id` | string | **Yes** | — | Fuel Finder API client ID. Use `!secret` to keep it out of plain text. |
+| `client_secret` | string | **Yes** | — | Fuel Finder API client secret. Use `!secret` to keep it out of plain text. |
+| `location` | mapping | No | HA home location | Location block — see sub-keys below. Omit entirely to use HA's configured home coordinates. |
+| `location.postcode` | string | No² | — | UK postcode (e.g. `SW1A 1AA`). Resolved via postcodes.io. |
+| `location.address` | string | No² | — | Free text address or place name (e.g. `"10 Downing Street, London"`). Resolved via Nominatim. |
+| `location.lat` | float | No² | — | Latitude in decimal degrees. Must be paired with `location.long`. |
+| `location.long` | float | No² | — | Longitude in decimal degrees. Must be paired with `location.lat`. |
+| `radius` | mapping | No | 3 miles | Search radius block — see sub-keys below. |
+| `radius.type` | string | **Yes** (if `radius` present) | — | Unit for the radius value. Must be `miles` or `km`. |
+| `radius.value` | float | **Yes** (if `radius` present) | — | Numeric radius value (0.1 – 200). |
+| `fuel_types` | mapping | No | E10 + B7 | Boolean map of fuel types to monitor. Omit a key or set it to `false` to skip that fuel. |
+| `fuel_types.E10` | boolean | No | `true` | E10 — standard unleaded petrol. |
+| `fuel_types.E5` | boolean | No | `false` | E5 — super unleaded petrol. |
+| `fuel_types.B7` | boolean | No | `true` | B7 — standard diesel. |
+| `fuel_types.SDV` | boolean | No | `false` | SDV — super / premium diesel. |
+| `count` | mapping | No | — | Sensor count options. |
+| `count.cheapest` | integer | No | `3` | Number of cheapest-ranked sensors to create per fuel type (0 – 5). `0` disables cheapest sensors. |
+| `count.nearest` | integer | No | `0` | Number of nearest-distance sensors to create per fuel type (0 – 5). `0` disables nearest sensors. |
+| `ignore_stale_data_days` | integer | No | `0` | Skip stations whose price data is older than this many days. `0` means no limit. |
+| `update_interval` | integer | No | `3600` | How often to poll for new prices, in seconds (300 – 86400). |
+
+¹ `name` is optional for a single instance but **strongly recommended** when configuring multiple locations under the same domain key.  
+² Only one of `postcode`, `address`, or `lat`+`long` should be set. Priority order if multiple keys are present: `postcode` → `address` → `lat`+`long`.
+
+#### Examples
+
+**Minimal — postcode location, secrets for credentials:**
+
+```yaml
+fuel_prices_uk:
+  client_id: !secret fuel_uk_client_id
+  client_secret: !secret fuel_uk_client_secret
+  location:
+    postcode: "SW1A 1AA"
+```
+
+**Full single-location example:**
+
+```yaml
+fuel_prices_uk:
+  name: Home
+  client_id: !secret fuel_uk_client_id
+  client_secret: !secret fuel_uk_client_secret
+  location:
+    postcode: "SW1A 1AA"
+  radius:
+    type: miles
+    value: 5.0
+  fuel_types:
+    E10: true
+    E5: false
+    B7: true
+    SDV: false
+  count:
+    cheapest: 3
+    nearest: 2
+  ignore_stale_data_days: 1
+  update_interval: 3600
+```
+
+**Free text address:**
+
+```yaml
+fuel_prices_uk:
+  client_id: !secret fuel_uk_client_id
+  client_secret: !secret fuel_uk_client_secret
+  location:
+    address: "10 Downing Street, London"
+  radius:
+    type: miles
+    value: 3.0
+```
+
+**Explicit coordinates:**
+
+```yaml
+fuel_prices_uk:
+  client_id: !secret fuel_uk_client_id
+  client_secret: !secret fuel_uk_client_secret
+  location:
+    lat: 51.5033
+    long: -0.1276
+  radius:
+    type: km
+    value: 8.0
+```
+
+**Multiple locations (list syntax):**
+
+```yaml
+fuel_prices_uk:
+  - name: Home
+    client_id: !secret fuel_uk_client_id
+    client_secret: !secret fuel_uk_client_secret
+    location:
+      postcode: "SW1A 1AA"
+    radius:
+      type: miles
+      value: 5.0
+
+  - name: Work
+    client_id: !secret fuel_uk_client_id
+    client_secret: !secret fuel_uk_client_secret
+    location:
+      postcode: "EC1A 1BB"
+    radius:
+      type: miles
+      value: 3.0
+    fuel_types:
+      E10: true
+      B7: true
+    count:
+      cheapest: 1
+      nearest: 0
+```
+
+Each list item creates its own config entry and its own set of sensors. The `name` field becomes the entry title in **Settings → Devices & Services**.
+
+---
 
 ## Sensors
 

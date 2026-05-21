@@ -1,7 +1,7 @@
 """Utility helpers for normalising retailer price payloads."""
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable
 
 PRICE_KEYS_PRIMARY: tuple[str, ...] = (
     "price",
@@ -32,7 +32,7 @@ def _iter_candidates(entry: Any) -> Iterable[Any]:
         yield entry
 
 
-def coerce_price(value: Any) -> Optional[float]:
+def coerce_price(value: Any) -> float | None:
     """Return a GBP float regardless of whether the feed uses pence, strings, or nested dicts."""
 
     for candidate in _iter_candidates(value):

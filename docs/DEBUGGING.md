@@ -40,7 +40,7 @@ You should see:
 [custom_components.fuel_prices_uk] [coordinator][startup_refresh] Starting background initial refresh
 ```
 
-It is expected that setup can complete before the first data payload is available. Sensors may briefly show as unavailable until startup refresh finishes.
+It is expected that setup can complete before the first data payload is available. Sensors may briefly show as unavailable until start-up refresh finishes.
 
 ### Data Updates
 Every update interval, you should see:
@@ -53,7 +53,7 @@ Every update interval, you should see:
 [custom_components.fuel_prices_uk] Successfully fetched X stations
 ```
 
-After setup, also look for one of these startup messages:
+After setup, also look for one of these start-up messages:
 ```
 [custom_components.fuel_prices_uk] [coordinator][startup_refresh] Initial refresh completed successfully
 ```
@@ -62,7 +62,7 @@ or
 [custom_components.fuel_prices_uk] [coordinator][startup_refresh] Initial refresh completed without successful data
 ```
 
-If the first startup refresh is unsuccessful, the integration now performs one immediate retry. You may see:
+If the first start-up refresh is unsuccessful, the integration now performs one immediate retry. You may see:
 ```
 [custom_components.fuel_prices_uk] [coordinator][startup_refresh] Initial refresh was unsuccessful; triggering immediate retry
 [custom_components.fuel_prices_uk] [coordinator][startup_refresh] Immediate retry completed successfully

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from .api_client import FuelPricesAPI
 
@@ -11,13 +11,13 @@ _LOGGER = logging.getLogger(__name__)
 
 async def fetch_stations_by_criteria(
     client: FuelPricesAPI,
-    latitude: Optional[float] = None,
-    longitude: Optional[float] = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
     radius_km: float = 5,
-    site_id: Optional[str] = None,
-    search_query: Optional[str] = None,
-    fuel_types: Optional[List[str]] = None
-) -> List[Dict[str, Any]]:
+    site_id: str | None = None,
+    search_query: str | None = None,
+    fuel_types: list[str] | None = None
+) -> list[dict[str, Any]]:
     """
     Fetch stations based on various criteria.
     

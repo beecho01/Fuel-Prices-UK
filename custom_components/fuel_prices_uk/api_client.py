@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from math import asin, cos, radians, sin, sqrt
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Iterable
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 from homeassistant.core import HomeAssistant
@@ -57,7 +57,7 @@ DEFAULT_429_BACKOFF_SECONDS = 3.0
 class StationRecord:
     """Internal lightweight representation of a fuel station."""
 
-    data: Dict[str, Any]
+    data: dict[str, Any]
     latitude: float
     longitude: float
 
@@ -94,22 +94,22 @@ class FuelPricesAPI:
         self._client_id = (client_id or "").strip()
         self._client_secret = (client_secret or "").strip()
         self._cache_seconds = cache_seconds
-        self._stations: List[StationRecord] = []
-        self._station_index: Dict[str, Dict[str, Any]] = {}
-        self._last_refresh: Optional[datetime] = None
+        self._stations: list[StationRecord] = []
+        self._station_index: dict[str, dict[str, Any]] = {}
+        self._last_refresh: datetime | None = None
         self._lock = asyncio.Lock()
         self._token_lock = asyncio.Lock()
         self._request_lock = asyncio.Lock()
-        self._access_token: Optional[str] = None
-        self._token_expiry: Optional[datetime] = None
-        self._last_request_at: Optional[float] = None
+        self._access_token: str | None = None
+        self._token_expiry: datetime | None = None
+        self._last_request_at: float | None = None
 
-    async def get_all_stations(self, *, force_refresh: bool = False) -> List[Dict[str, Any]]:
+    async def get_all_stations(self, *, force_refresh: bool = False) -> list[dict[str, Any]]:
         """Return cached station dictionaries."""
         await self._ensure_data(force_refresh=force_refresh)
         return list(self._station_index.values())
 
-    async def get_station_by_id(self, site_id: str) -> Optional[Dict[str, Any]]:
+    async def get_station_by_id(self, site_id: str) -> dict[str, Any] | None:
         """Return a station by site identifier."""
         if not site_id:
             return None
@@ -125,10 +125,10 @@ class FuelPricesAPI:
 
     async def get_stations_within_radius(
         self, latitude: float, longitude: float, radius_km: float
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Return stations within the provided radius."""
         await self._ensure_data()
-        matches: List[Tuple[float, Dict[str, Any]]] = []
+        matches: list[tuple[float, dict[str, Any]]] = []
         for record in self._stations:
             distance = _distance_km(latitude, longitude, record.latitude, record.longitude)
             if distance <= radius_km:
@@ -138,7 +138,7 @@ class FuelPricesAPI:
         matches.sort(key=lambda item: item[0])
         return [item[1] for item in matches]
 
-    async def search_stations(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    async def search_stations(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Return stations matching the query across brand/address/postcode."""
         if not query:
             return []
@@ -163,13 +163,13 @@ class FuelPricesAPI:
         return True
 
     def sort_by_fuel_price(
-        self, stations: Iterable[Dict[str, Any]], fuel_type: str
-    ) -> List[Dict[str, Any]]:
+        self, stations: Iterable[dict[str, Any]], fuel_type: str
+    ) -> list[dict[str, Any]]:
         """Return stations sorted by fuel price for the provided fuel type."""
         if fuel_type not in SUPPORTED_FUEL_TYPES:
             return list(stations)
 
-        sortable: List[Tuple[float, Dict[str, Any]]] = []
+        sortable: list[tuple[float, dict[str, Any]]] = []
         for station in stations:
             price = _extract_price(station.get("prices", {}), fuel_type)
             if price is None:
@@ -211,7 +211,7 @@ class FuelPricesAPI:
             else:
                 stations = await self._fetch_station_info()
                 prices = await self._fetch_station_prices()
-                new_index: Dict[str, Dict[str, Any]] = {}
+                new_index: dict[str, dict[str, Any]] = {}
                 self._station_index = new_index
                 self._merge_station_info(stations)
                 self._merge_station_prices(prices)
@@ -232,7 +232,7 @@ class FuelPricesAPI:
         if not self._station_index:
             raise RuntimeError("Fuel Finder returned no stations")
 
-        station_records: List[StationRecord] = []
+        station_records: list[StationRecord] = []
         for station in self._station_index.values():
             latitude = _safe_float(station.get("latitude"))
             longitude = _safe_float(station.get("longitude"))
@@ -246,21 +246,21 @@ class FuelPricesAPI:
         self._stations = station_records
         self._last_refresh = datetime.now(timezone.utc)
 
-    async def _fetch_station_info(self, *, effective_start: str | None = None) -> List[Dict[str, Any]]:
+    async def _fetch_station_info(self, *, effective_start: str | None = None) -> list[dict[str, Any]]:
         return await self._fetch_batched_resource(PFS_INFO_ENDPOINT, effective_start=effective_start)
 
-    async def _fetch_station_prices(self, *, effective_start: str | None = None) -> List[Dict[str, Any]]:
+    async def _fetch_station_prices(self, *, effective_start: str | None = None) -> list[dict[str, Any]]:
         return await self._fetch_batched_resource(PFS_PRICES_ENDPOINT, effective_start=effective_start)
 
     async def _fetch_batched_resource(
         self, endpoint: str, *, effective_start: str | None = None
-    ) -> List[Dict[str, Any]]:
-        records: List[Dict[str, Any]] = []
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
         batch_number = 1
-        previous_signature: Optional[Tuple[int, str, str]] = None
-        total_batches_hint: Optional[int] = None
+        previous_signature: tuple[int, str, str] | None = None
+        total_batches_hint: int | None = None
         while batch_number <= MAX_BATCHES:
-            params: Dict[str, Any] = {"batch-number": batch_number}
+            params: dict[str, Any] = {"batch-number": batch_number}
             if effective_start:
                 params["effective-start-timestamp"] = effective_start
 
@@ -324,7 +324,7 @@ class FuelPricesAPI:
             )
         return records
 
-    async def _api_get(self, endpoint: str, *, params: Dict[str, Any]) -> Any:
+    async def _api_get(self, endpoint: str, *, params: dict[str, Any]) -> Any:
         timeout = ClientTimeout(total=DEFAULT_TIMEOUT_SECONDS)
         response_payload: Any = {}
 
@@ -464,7 +464,7 @@ class FuelPricesAPI:
             and datetime.now(timezone.utc) < self._token_expiry
         )
 
-    def _merge_station_info(self, rows: List[Dict[str, Any]]) -> None:
+    def _merge_station_info(self, rows: list[dict[str, Any]]) -> None:
         for row in rows:
             node_id = _extract_station_identifier(row)
             if not node_id:
@@ -479,7 +479,7 @@ class FuelPricesAPI:
                 }
 
             location_obj = row.get("location")
-            location: Dict[str, Any] = location_obj if isinstance(location_obj, dict) else {}
+            location: dict[str, Any] = location_obj if isinstance(location_obj, dict) else {}
             address = _format_address(location)
 
             existing["site_id"] = node_id
@@ -513,7 +513,7 @@ class FuelPricesAPI:
 
             self._station_index[node_id] = existing
 
-    def _merge_station_prices(self, rows: List[Dict[str, Any]]) -> None:
+    def _merge_station_prices(self, rows: list[dict[str, Any]]) -> None:
         stations_touched = 0
         price_points_written = 0
         for row in rows:
@@ -534,7 +534,7 @@ class FuelPricesAPI:
                 }
 
             station_prices = station.get("prices")
-            prices: Dict[str, Any] = station_prices if isinstance(station_prices, dict) else {}
+            prices: dict[str, Any] = station_prices if isinstance(station_prices, dict) else {}
             last_updated = station.get("last_updated") if isinstance(station.get("last_updated"), str) else None
 
             for fuel_entry in _extract_fuel_entries_from_row(row):
@@ -609,7 +609,7 @@ async def async_validate_api_credentials(
     return True
 
 
-def _safe_float(value: Any) -> Optional[float]:
+def _safe_float(value: Any) -> float | None:
     try:
         if value is None:
             return None
@@ -618,7 +618,7 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
-def _parse_datetime(value: Any) -> Optional[str]:
+def _parse_datetime(value: Any) -> str | None:
     if not value:
         return None
     if isinstance(value, (int, float)):
@@ -655,7 +655,7 @@ def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return round(km, 3)
 
 
-def _extract_price(prices: Dict[str, Any], fuel_type: str) -> Optional[float]:
+def _extract_price(prices: dict[str, Any], fuel_type: str) -> float | None:
     price_entry = prices.get(fuel_type)
     if isinstance(price_entry, dict):
         value = price_entry.get("price") or price_entry.get("value")
@@ -672,7 +672,7 @@ def _extract_price(prices: Dict[str, Any], fuel_type: str) -> Optional[float]:
     return round(price, 3)
 
 
-def _format_address(location: Dict[str, Any]) -> str:
+def _format_address(location: dict[str, Any]) -> str:
     parts = [
         location.get("address_line_1"),
         location.get("address_line_2"),
@@ -684,7 +684,7 @@ def _format_address(location: Dict[str, Any]) -> str:
     return ", ".join(cleaned)
 
 
-def _extract_api_error(payload: Any) -> Optional[str]:
+def _extract_api_error(payload: Any) -> str | None:
     if isinstance(payload, str) and payload.strip():
         return payload.strip()
 
@@ -709,7 +709,7 @@ def _extract_api_error(payload: Any) -> Optional[str]:
     return None
 
 
-def _latest_iso(current_value: Optional[str], candidate: Optional[str]) -> Optional[str]:
+def _latest_iso(current_value: str | None, candidate: str | None) -> str | None:
     if not candidate:
         return current_value
     if not current_value:
@@ -763,8 +763,8 @@ async def _parse_json_response(response) -> Any:
     return payload
 
 
-def _extract_records_from_payload(payload: Any, endpoint: str) -> Optional[List[Dict[str, Any]]]:
-    list_candidates: List[List[Dict[str, Any]]] = []
+def _extract_records_from_payload(payload: Any, endpoint: str) -> list[dict[str, Any]] | None:
+    list_candidates: list[list[dict[str, Any]]] = []
 
     def _collect(value: Any, depth: int = 0) -> None:
         if depth > 3 or value is None:
@@ -821,7 +821,7 @@ def _describe_payload_shape(payload: Any) -> str:
     return type(payload).__name__
 
 
-def _extract_station_identifier(row: Dict[str, Any]) -> str:
+def _extract_station_identifier(row: dict[str, Any]) -> str:
     for key in ("node_id", "site_id", "id", "station_id", "pfs_id"):
         value = row.get(key)
         if value is None:
@@ -832,8 +832,8 @@ def _extract_station_identifier(row: Dict[str, Any]) -> str:
     return ""
 
 
-def _extract_fuel_entries_from_row(row: Dict[str, Any]) -> List[Dict[str, Any]]:
-    entries: List[Dict[str, Any]] = []
+def _extract_fuel_entries_from_row(row: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
 
     for key in ("fuel_prices", "fuelPrices", "prices", "fuel_price_data", "fuelPriceData"):
         container = row.get(key)
@@ -850,8 +850,8 @@ def _extract_fuel_entries_from_row(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     return entries
 
 
-def _extract_flat_fuel_entries(row: Dict[str, Any]) -> List[Dict[str, Any]]:
-    entries: List[Dict[str, Any]] = []
+def _extract_flat_fuel_entries(row: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
     row_last_updated = _first_present(
         row,
         "price_last_updated",
@@ -893,8 +893,8 @@ def _extract_flat_fuel_entries(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     return entries
 
 
-def _expand_fuel_price_dict(container: Dict[str, Any]) -> List[Dict[str, Any]]:
-    entries: List[Dict[str, Any]] = []
+def _expand_fuel_price_dict(container: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
     for fuel_key, value in container.items():
         source_fuel_type = _normalise_source_fuel_type_key(fuel_key)
         if not source_fuel_type:
@@ -912,7 +912,7 @@ def _expand_fuel_price_dict(container: Dict[str, Any]) -> List[Dict[str, Any]]:
     return entries
 
 
-def _extract_source_fuel_type(entry: Dict[str, Any]) -> Optional[str]:
+def _extract_source_fuel_type(entry: dict[str, Any]) -> str | None:
     for key in ("fuel_type", "fuelType", "type", "grade", "product", "fuel"):
         value = entry.get(key)
         if value is None:
@@ -923,7 +923,7 @@ def _extract_source_fuel_type(entry: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _normalise_source_fuel_type_key(value: Any) -> Optional[str]:
+def _normalise_source_fuel_type_key(value: Any) -> str | None:
     if value is None:
         return None
     key = str(value).strip().upper().replace("-", "_").replace(" ", "_")
@@ -943,7 +943,7 @@ def _normalise_source_fuel_type_key(value: Any) -> Optional[str]:
     return None
 
 
-def _extract_fuel_entry_price(entry: Dict[str, Any]) -> Optional[float]:
+def _extract_fuel_entry_price(entry: dict[str, Any]) -> float | None:
     for key in (
         "price",
         "value",
@@ -961,7 +961,7 @@ def _extract_fuel_entry_price(entry: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def _first_present(payload: Dict[str, Any], *keys: str) -> Any:
+def _first_present(payload: dict[str, Any], *keys: str) -> Any:
     for key in keys:
         value = payload.get(key)
         if value is not None:
@@ -969,11 +969,11 @@ def _first_present(payload: Dict[str, Any], *keys: str) -> Any:
     return None
 
 
-def _extract_total_batches_hint(payload: Any) -> Optional[int]:
+def _extract_total_batches_hint(payload: Any) -> int | None:
     if not isinstance(payload, dict):
         return None
 
-    candidate_values: List[Any] = []
+    candidate_values: list[Any] = []
     for key in ("total_batches", "total_pages", "totalPages", "last_page"):
         if key in payload:
             candidate_values.append(payload.get(key))
@@ -995,7 +995,7 @@ def _extract_total_batches_hint(payload: Any) -> Optional[int]:
     return None
 
 
-def _build_batch_signature(rows: List[Dict[str, Any]]) -> Tuple[int, str, str]:
+def _build_batch_signature(rows: list[dict[str, Any]]) -> tuple[int, str, str]:
     first = rows[0] if rows else {}
     last = rows[-1] if rows else {}
     first_id = _extract_station_identifier(first) or repr(sorted(first.keys()))

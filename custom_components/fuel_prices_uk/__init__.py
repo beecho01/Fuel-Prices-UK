@@ -1,12 +1,17 @@
 """The Fuel Prices UK integration."""
+from __future__ import annotations
 import asyncio
 import logging
 from datetime import timedelta
-from typing import Any, Dict, List, Mapping
+from typing import Any, Mapping
 
-from homeassistant.config_entries import ConfigEntry
+import voluptuous as vol
+from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
+from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -16,12 +21,31 @@ from .const import (
     DOMAIN,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
+    CONF_DEVICE_TRACKER,
+    CONF_LOCATION_METHOD,
     CONF_UPDATE_INTERVAL,
     CONF_STATIONS,
     CONF_FUELTYPES,
     ENTRY_TITLE,
     CONF_LOCATION,
     CONF_RADIUS,
+    CONF_ADDRESS,
+    CONF_CHEAPEST_COUNT,
+    CONF_NEAREST_COUNT,
+    CONF_MAX_DATA_AGE_DAYS,
+    DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_CHEAPEST_COUNT,
+    DEFAULT_NEAREST_COUNT,
+    DEFAULT_MAX_DATA_AGE_DAYS,
+    MIN_CHEAPEST_COUNT,
+    MAX_CHEAPEST_COUNT,
+    MAX_NEAREST_COUNT,
+    FUEL_TYPE_E10,
+    FUEL_TYPE_E5,
+    FUEL_TYPE_B7,
+    FUEL_TYPE_SDV,
+    MILES_TO_KM,
+    KM_TO_MILES,
 )
 from .api_client import FuelPricesAPI
 from .fetch_prices import fetch_stations_by_criteria
@@ -30,8 +54,77 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor"]
 
+_INSTANCE_SCHEMA = vol.Schema(
+    {
+        # Optional name — required when configuring multiple locations so each
+        # entry can be told apart.  Becomes the config entry title.
+        vol.Optional("name"): cv.string,
+        vol.Required(CONF_CLIENT_ID): cv.string,
+        vol.Required(CONF_CLIENT_SECRET): cv.string,
+        # Location block — include exactly one of: postcode, address, or lat+long.
+        # Omit the entire block to use HA's configured home location.
+        vol.Optional("location"): vol.Schema(
+            {
+                vol.Optional("postcode"): cv.string,
+                vol.Optional("address"): cv.string,
+                vol.Optional("lat"): cv.latitude,
+                vol.Optional("long"): cv.longitude,
+            }
+        ),
+        # Radius with explicit unit
+        vol.Optional("radius"): vol.Schema(
+            {
+                vol.Required("type"): vol.In(["miles", "km"]),
+                vol.Required("value"): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.1, max=200)
+                ),
+            }
+        ),
+        # Fuel types as a boolean map; omit to default to E10 + B7
+        vol.Optional("fuel_types"): vol.Schema(
+            {
+                vol.Optional(FUEL_TYPE_E10): cv.boolean,
+                vol.Optional(FUEL_TYPE_E5): cv.boolean,
+                vol.Optional(FUEL_TYPE_B7): cv.boolean,
+                vol.Optional(FUEL_TYPE_SDV): cv.boolean,
+            }
+        ),
+        # Sensor count options
+        vol.Optional("count"): vol.Schema(
+            {
+                vol.Optional(
+                    "cheapest", default=DEFAULT_CHEAPEST_COUNT
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT),
+                ),
+                vol.Optional(
+                    "nearest", default=DEFAULT_NEAREST_COUNT
+                ): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)
+                ),
+            }
+        ),
+        vol.Optional(
+            "ignore_stale_data_days", default=DEFAULT_MAX_DATA_AGE_DAYS
+        ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
+        vol.Optional(
+            CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL
+        ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+    }
+)
 
-def _entry_config(entry: ConfigEntry) -> Dict[str, Any]:
+CONFIG_SCHEMA = vol.Schema(
+    {
+        # Accept either a single mapping or a list of mappings so users can
+        # configure multiple locations under the same domain key.
+        DOMAIN: vol.All(cv.ensure_list, [_INSTANCE_SCHEMA])
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+
+def _entry_config(entry: ConfigEntry) -> dict[str, Any]:
     """Return merged config where options override data."""
     config = dict(entry.data)
     if entry.options:
@@ -39,10 +132,24 @@ def _entry_config(entry: ConfigEntry) -> Dict[str, Any]:
     return config
 
 
-async def async_setup(hass: HomeAssistant, _config: Mapping[str, Any]) -> bool:
-    """Set up the Fuel Prices UK integration."""
-    # We don't support YAML-based configuration, so return True
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the Fuel Prices UK integration, importing YAML config if present."""
     hass.data.setdefault(DOMAIN, {})
+    instances = config.get(DOMAIN, [])
+    if instances:
+        _LOGGER.info(
+            "Detected %d fuel_prices_uk YAML instance(s) — importing as config "
+            "entries. Consider removing the YAML block(s) once entries are created.",
+            len(instances),
+        )
+        for instance in instances:
+            hass.async_create_task(
+                hass.config_entries.flow.async_init(
+                    DOMAIN,
+                    context={"source": SOURCE_IMPORT},
+                    data=dict(instance),
+                )
+            )
     return True
 
 
@@ -111,7 +218,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     return unload_ok
 
 
-class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]]):
+class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
     """Class to manage fetching data from the Fuel Prices UK sources."""
 
     def __init__(self, hass, entry: ConfigEntry, update_interval: timedelta, api_client: FuelPricesAPI):
@@ -127,6 +234,13 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]
         self._logger = _LOGGER
         self.api_client = api_client
         self._startup_refresh_task: asyncio.Task[None] | None = None
+
+        # Issue #10: resolve device_tracker entity_id for dynamic location
+        self.device_tracker_entity_id: str | None = (
+            entry_config.get(CONF_DEVICE_TRACKER)
+            if entry_config.get(CONF_LOCATION_METHOD) == "device_tracker"
+            else None
+        )
 
         _LOGGER.info(
             "[coordinator][__init__] Initialising with location=%s, radius=%s km, fuel_types=%s, update_interval=%s",
@@ -199,7 +313,7 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]
 
         return bool(self.last_update_success)
 
-    async def _async_update_data(self) -> List[Dict[str, Any]]:
+    async def _async_update_data(self) -> list[dict[str, Any]]:
         """Fetch data from fuel price sources."""
         try:
             _LOGGER.info("[coordinator][_async_update_data] Starting data update cycle")
@@ -207,6 +321,37 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]
             # Determine search criteria based on configuration
             latitude = self.location.get("latitude") if self.location else None
             longitude = self.location.get("longitude") if self.location else None
+
+            # Issue #10: override with live device_tracker coordinates if configured
+            if self.device_tracker_entity_id:
+                tracker_state = self.hass.states.get(self.device_tracker_entity_id)
+                if tracker_state and tracker_state.state not in ("unavailable", "unknown", "not_home"):
+                    try:
+                        tracker_lat = tracker_state.attributes.get("latitude")
+                        tracker_lon = tracker_state.attributes.get("longitude")
+                        if tracker_lat is not None and tracker_lon is not None:
+                            latitude = float(tracker_lat)
+                            longitude = float(tracker_lon)
+                            _LOGGER.debug(
+                                "[coordinator][_async_update_data] Using device_tracker %s location: lat=%s, lon=%s",
+                                self.device_tracker_entity_id, latitude, longitude,
+                            )
+                        else:
+                            _LOGGER.warning(
+                                "[coordinator][_async_update_data] device_tracker %s has no latitude/longitude attributes",
+                                self.device_tracker_entity_id,
+                            )
+                    except (TypeError, ValueError):
+                        _LOGGER.warning(
+                            "[coordinator][_async_update_data] Could not parse coordinates from device_tracker %s",
+                            self.device_tracker_entity_id,
+                        )
+                else:
+                    _LOGGER.debug(
+                        "[coordinator][_async_update_data] device_tracker %s state is %s; using last known location",
+                        self.device_tracker_entity_id,
+                        tracker_state.state if tracker_state else "<not found>",
+                    )
             
             _LOGGER.info("[coordinator][_async_update_data] Search coordinates: lat=%s, lon=%s", latitude, longitude)
             _LOGGER.info("[coordinator][_async_update_data] Fuel types to search: %s", self.fuel_types)
@@ -258,7 +403,7 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[List[Dict[str, Any]]
             raise UpdateFailed(f"Error fetching data: {err}") from err
 
 
-def _redacted_entry_data(data: Mapping[str, Any]) -> Dict[str, Any]:
+def _redacted_entry_data(data: Mapping[str, Any]) -> dict[str, Any]:
     """Return config entry data with sensitive fields masked for logging."""
     safe = dict(data)
     if CONF_CLIENT_SECRET in safe and safe[CONF_CLIENT_SECRET]:

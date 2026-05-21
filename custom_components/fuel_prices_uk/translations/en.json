@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Fuel Finder API and Search Setup",
-        "description": "Choose how to set your search location and enter your Fuel Finder API credentials. You can create your Client ID and Client Secret via the UK Government Fuel Finder guidance: https://www.gov.uk/guidance/access-fuel-price-data",
+        "description": "Choose how to set your search location and enter your Fuel Finder API credentials. You can create your Client ID and Client Secret via the UK Government Fuel Finder guidance: https://www.developer.fuel-finder.service.gov.uk/public-api",
         "data": {
           "search_method": "How would you like to set your search area?",
           "client_id": "Fuel Finder API Client ID",
@@ -19,14 +19,18 @@
           "location": "Location",
           "radius": "Search Radius (miles)",
           "fuel_types": "Fuel Types to Monitor",
-          "cheapest_count": "Number of Cheapest Options (1-5)"
+          "cheapest_count": "Number of Cheapest Options (0-5, 0 = disabled)",
+          "nearest_count": "Number of Nearest Stations (0-5, 0 = disabled)",
+          "max_data_age_days": "Ignore Prices Older Than (in days, 0 = no day limit)"
         },
         "data_description": {
           "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
           "location": "Your location for finding nearby fuel stations",
           "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
           "fuel_types": "Which fuel types to track prices for",
-          "cheapest_count": "How many ranked cheapest stations to expose per fuel type"
+          "cheapest_count": "How many ranked cheapest stations to expose per fuel type (0 disables cheapest sensors)",
+          "nearest_count": "How many distance-ranked (nearest first) stations to expose per fuel type (0 disables nearest sensors)",
+          "max_data_age_days": "Skip stations whose price data is older than this many days. Set 0 to include all data regardless of age."
         }
       },
       "location_address": {
@@ -37,14 +41,40 @@
           "address": "Postcode, Address, or Location",
           "radius": "Search Radius (miles)",
           "fuel_types": "Fuel Types to Monitor",
-          "cheapest_count": "Number of Cheapest Options (1-5)"
+          "cheapest_count": "Number of Cheapest Options (0-5, 0 = disabled)",
+          "nearest_count": "Number of Nearest Stations (0-5, 0 = disabled)",
+          "max_data_age_days": "Ignore Prices Older Than (in days, 0 = no day limit)"
         },
         "data_description": {
           "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
           "address": "UK postcode (e.g. SW1A 1AA), full address, or location name",
           "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
           "fuel_types": "Which fuel types to track prices for",
-          "cheapest_count": "How many ranked cheapest stations to expose per fuel type"
+          "cheapest_count": "How many ranked cheapest stations to expose per fuel type (0 disables cheapest sensors)",
+          "nearest_count": "How many distance-ranked (nearest first) stations to expose per fuel type (0 disables nearest sensors)",
+          "max_data_age_days": "Skip stations whose price data is older than this many days. Set 0 to include all data regardless of age."
+        }
+      },
+      "location_device_tracker": {
+        "title": "Configure Fuel Prices UK - Device Tracker",
+        "description": "Select a device tracker entity to use its live GPS location as your search centre. The search will use the tracker's current position on every update.",
+        "data": {
+          "device_tracker_entity": "Device Tracker Entity",
+          "update_interval": "Update Interval (seconds)",
+          "radius": "Search Radius (miles)",
+          "fuel_types": "Fuel Types to Monitor",
+          "cheapest_count": "Number of Cheapest Options (0-5, 0 = disabled)",
+          "nearest_count": "Number of Nearest Stations (0-5, 0 = disabled)",
+          "max_data_age_days": "Ignore Prices Older Than (in days, 0 = no day limit)"
+        },
+        "data_description": {
+          "device_tracker_entity": "The device tracker entity whose GPS coordinates will be used as the search centre",
+          "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
+          "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
+          "fuel_types": "Which fuel types to track prices for",
+          "cheapest_count": "How many ranked cheapest stations to expose per fuel type (0 disables cheapest sensors)",
+          "nearest_count": "How many distance-ranked (nearest first) stations to expose per fuel type (0 disables nearest sensors)",
+          "max_data_age_days": "Skip stations whose price data is older than this many days. Set 0 to include all data regardless of age."
         }
       }
     },
@@ -53,10 +83,19 @@
       "invalid_update_interval": "Update interval must be at least 300 seconds (5 minutes)",
       "invalid_api_credentials": "Fuel Finder API credentials are invalid. Check your Client ID and Client Secret.",
       "no_fuel_type_selected": "Please select at least one fuel type to monitor",
-      "invalid_cheapest_count": "Choose between 1 and 5 cheapest options",
+      "neither_option_enabled": "At least one of cheapest options or nearest stations must be enabled (set either above 0)",
+      "invalid_cheapest_count": "Choose between 0 and 5 cheapest options",
       "invalid_address": "Could not find location. Please check your postcode/address and try again.",
       "invalid_location": "Please drop a pin on the map before continuing",
+      "device_tracker_not_found": "Device tracker entity not found. Check the entity ID.",
+      "device_tracker_no_location": "Device tracker does not have GPS coordinates. Ensure the tracker has a location fix.",
       "unknown": "An unexpected error occurred"
+    },
+    "abort": {
+      "already_configured": "This Fuel Finder API account is already configured",
+      "missing_credentials": "client_id or client_secret is missing from the YAML configuration",
+      "invalid_api_credentials": "The YAML credentials failed API validation. Check client_id and client_secret.",
+      "invalid_address": "Could not geocode the address specified in YAML configuration"
     }
   },
   "options": {
@@ -65,9 +104,12 @@
       "invalid_update_interval": "Update interval must be at least 300 seconds (5 minutes)",
       "invalid_api_credentials": "Fuel Finder API credentials are invalid. Check your Client ID and Client Secret.",
       "no_fuel_type_selected": "Please select at least one fuel type to monitor",
-      "invalid_cheapest_count": "Choose between 1 and 5 cheapest options",
+      "invalid_cheapest_count": "Choose between 0 and 5 cheapest options",
       "invalid_address": "Could not find location. Please check your postcode/address and try again.",
       "invalid_location": "Please drop a pin on the map before continuing",
+      "device_tracker_not_found": "Device tracker entity not found. Check the entity ID.",
+      "device_tracker_no_location": "Device tracker does not have GPS coordinates. Ensure the tracker has a location fix.",
+      "neither_option_enabled": "At least one of cheapest options or nearest stations must be enabled (set either above 0)",
       "unknown": "An unexpected error occurred"
     },
     "step": {
@@ -88,14 +130,18 @@
           "radius": "Search Radius (miles)",
           "location": "Location",
           "fuel_types": "Fuel Types to Monitor",
-          "cheapest_count": "Number of Cheapest Options (1-5)"
+          "cheapest_count": "Number of Cheapest Options (0-5, 0 = disabled)",
+          "nearest_count": "Number of Nearest Stations (0-5, 0 = disabled)",
+          "max_data_age_days": "Ignore Prices Older Than (in days, 0 = no day limit)"
         },
         "data_description": {
           "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
           "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
           "location": "Your location for finding nearby fuel stations",
           "fuel_types": "Which fuel types to track prices for",
-          "cheapest_count": "How many ranked cheapest stations to expose per fuel type"
+          "cheapest_count": "How many ranked cheapest stations to expose per fuel type (0 disables cheapest sensors)",
+          "nearest_count": "How many distance-ranked (nearest first) stations to expose per fuel type (0 disables nearest sensors)",
+          "max_data_age_days": "Skip stations whose price data is older than this many days. Set 0 to include all data regardless of age."
         }
       },
       "location_address": {
@@ -106,16 +152,43 @@
           "radius": "Search Radius (miles)",
           "address": "Postcode, Address, or Location",
           "fuel_types": "Fuel Types to Monitor",
-          "cheapest_count": "Number of Cheapest Options (1-5)"
+          "cheapest_count": "Number of Cheapest Options (0-5, 0 = disabled)",
+          "nearest_count": "Number of Nearest Stations (0-5, 0 = disabled)",
+          "max_data_age_days": "Ignore Prices Older Than (in days, 0 = no day limit)"
         },
         "data_description": {
           "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
           "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
           "address": "UK postcode (e.g. SW1A 1AA), full address, or location name",
           "fuel_types": "Which fuel types to track prices for",
-          "cheapest_count": "How many ranked cheapest stations to expose per fuel type"
+          "cheapest_count": "How many ranked cheapest stations to expose per fuel type (0 disables cheapest sensors)",
+          "nearest_count": "How many distance-ranked (nearest first) stations to expose per fuel type (0 disables nearest sensors)",
+          "max_data_age_days": "Skip stations whose price data is older than this many days. Set 0 to include all data regardless of age."
+        }
+      },
+      "location_device_tracker": {
+        "title": "Update Options - Device Tracker",
+        "description": "Update your Fuel Prices UK device tracker settings",
+        "data": {
+          "device_tracker_entity": "Device Tracker Entity",
+          "update_interval": "Update Interval (seconds)",
+          "radius": "Search Radius (miles)",
+          "fuel_types": "Fuel Types to Monitor",
+          "cheapest_count": "Number of Cheapest Options (0-5, 0 = disabled)",
+          "nearest_count": "Number of Nearest Stations (0-5, 0 = disabled)",
+          "max_data_age_days": "Ignore Prices Older Than (in days, 0 = no day limit)"
+        },
+        "data_description": {
+          "device_tracker_entity": "The device tracker entity whose GPS coordinates will be used as the search centre",
+          "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
+          "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
+          "fuel_types": "Which fuel types to track prices for",
+          "cheapest_count": "How many ranked cheapest stations to expose per fuel type (0 disables cheapest sensors)",
+          "nearest_count": "How many distance-ranked (nearest first) stations to expose per fuel type (0 disables nearest sensors)",
+          "max_data_age_days": "Skip stations whose price data is older than this many days. Set 0 to include all data regardless of age."
         }
       }
     }
   }
 }
+
