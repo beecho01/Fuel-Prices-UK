@@ -54,12 +54,15 @@ DEFAULT_429_BACKOFF_SECONDS = 5.0
 RATE_LIMIT_BACKOFF_MULTIPLIER = 2.0
 RATE_LIMIT_MAX_BACKOFF_SECONDS = 60.0
 
-# Global rate-limit cooldown shared across all FuelPricesAPI instances.
+# Global rate-limit state shared across all FuelPricesAPI instances.
 # When any instance receives a 429, all instances pause requests until the
 # cooldown elapses, preventing multiple config entries from compounding
-# the rate-limit violation.
+# the rate-limit violation. The global request lock and last-request
+# timestamp ensure that even during normal operation, instances do not
+# fire simultaneous requests that could trigger rate limiting.
 _global_429_cooldown_until: float = 0.0
-_global_429_lock = asyncio.Lock()
+_global_request_lock = asyncio.Lock()
+_global_last_request_at: float | None = None
 
 
 @dataclass
@@ -108,10 +111,8 @@ class FuelPricesAPI:
         self._last_refresh: datetime | None = None
         self._lock = asyncio.Lock()
         self._token_lock = asyncio.Lock()
-        self._request_lock = asyncio.Lock()
         self._access_token: str | None = None
         self._token_expiry: datetime | None = None
-        self._last_request_at: float | None = None
 
     async def get_all_stations(self, *, force_refresh: bool = False) -> list[dict[str, Any]]:
         """Return cached station dictionaries."""
@@ -352,7 +353,7 @@ class FuelPricesAPI:
             for retry_count in range(MAX_429_RETRIES + 1):
                 backoff_seconds: float | None = None
                 try:
-                    async with self._request_lock:
+                    async with _global_request_lock:
                         await self._respect_rate_limit()
                         await self._respect_global_429_cooldown()
                         async with self._session.get(url, params=params, timeout=timeout, headers=headers) as response:
@@ -410,9 +411,14 @@ class FuelPricesAPI:
         raise RuntimeError(f"GET {endpoint} failed after token refresh")
 
     async def _respect_rate_limit(self) -> None:
+        """Enforce minimum interval between requests across all instances.
+        
+        Must be called while holding _global_request_lock.
+        """
+        global _global_last_request_at
         now = asyncio.get_running_loop().time()
-        if self._last_request_at is not None:
-            elapsed = now - self._last_request_at
+        if _global_last_request_at is not None:
+            elapsed = now - _global_last_request_at
             if elapsed < MIN_REQUEST_INTERVAL_SECONDS:
                 delay = MIN_REQUEST_INTERVAL_SECONDS - elapsed
                 try:
@@ -420,7 +426,7 @@ class FuelPricesAPI:
                 except asyncio.CancelledError:
                     _LOGGER.debug("Fuel Finder rate-limit sleep cancelled (remaining_delay=%.2fs)", delay)
                     raise
-        self._last_request_at = asyncio.get_running_loop().time()
+        _global_last_request_at = asyncio.get_running_loop().time()
 
     @staticmethod
     async def _respect_global_429_cooldown() -> None:
@@ -479,8 +485,9 @@ class FuelPricesAPI:
 
             response_payload: Any = {}
             for token_retry in range(MAX_429_RETRIES + 1):
+                token_backoff: float | None = None
                 try:
-                    async with self._request_lock:
+                    async with _global_request_lock:
                         await self._respect_rate_limit()
                         await self._respect_global_429_cooldown()
                         async with self._session.post(token_url, json=payload, timeout=timeout, headers=headers) as response:
@@ -502,13 +509,8 @@ class FuelPricesAPI:
                                     token_retry + 1,
                                     MAX_429_RETRIES,
                                 )
-                                try:
-                                    await asyncio.sleep(backoff)
-                                except asyncio.CancelledError:
-                                    _LOGGER.debug("Fuel Finder token 429 backoff cancelled")
-                                    raise
-                                continue
-                            if response.status >= 400:
+                                token_backoff = backoff
+                            elif response.status >= 400:
                                 message = _extract_api_error(response_payload) or response.reason
                                 raise RuntimeError(
                                     f"Fuel Finder token request failed ({response.status}): {message}"
@@ -518,6 +520,14 @@ class FuelPricesAPI:
                     raise
                 except (ClientError, asyncio.TimeoutError) as err:
                     raise RuntimeError(f"Fuel Finder token request failed: {err}") from err
+
+                if token_backoff is not None:
+                    try:
+                        await asyncio.sleep(token_backoff)
+                    except asyncio.CancelledError:
+                        _LOGGER.debug("Fuel Finder token 429 backoff cancelled")
+                        raise
+                    continue
 
                 # Success — break out of retry loop
                 break
