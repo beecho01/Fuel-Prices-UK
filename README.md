@@ -283,18 +283,38 @@ Example: `sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10`
 type: entities
 title: Cheapest Fuel Prices Near Me
 entities:
-  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
+  - type: custom:template-entity-row
+    entity: sensor.sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e10
     name: Unleaded (E10)
-    secondary_info: last-updated
-  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
+    state: |
+      £{{states(config.entity)}}
+    secondary: >
+      {{state_attr(config.entity,'brand')}} •
+      {{state_attr(config.entity,'address')}}
+  - type: custom:template-entity-row
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_b7
     name: Diesel (B7)
-    secondary_info: last-updated
-  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
+    state: |
+      £{{states(config.entity)}}
+    secondary: >
+      {{state_attr(config.entity,'brand')}} •
+      {{state_attr(config.entity,'address')}}
+  - type: custom:template-entity-row
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_e5
     name: Super Unleaded (E5)
-    secondary_info: last-updated
-  - entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
+    state: |
+      £{{states(config.entity)}}
+    secondary: >
+      {{state_attr(config.entity,'brand')}} •
+      {{state_attr(config.entity,'address')}}
+  - type: custom:template-entity-row
+    entity: sensor.fuel_price_uk_sw1a_2aa_3_mi_cheapest_sdv
     name: Super Diesel (SDV)
-    secondary_info: last-updated
+    state: |
+      £{{states(config.entity)}}
+    secondary: >
+      {{state_attr(config.entity,'brand')}} •
+      {{state_attr(config.entity,'address')}}
 ```
 
 The standard Home Assistant `entities` card does not evaluate Jinja templates in `secondary_info`.
