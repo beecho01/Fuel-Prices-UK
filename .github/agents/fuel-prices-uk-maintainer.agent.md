@@ -33,8 +33,8 @@ scripts/
 
 ## Key Architecture
 
-- **Coordinator pattern**: `FuelPricesDataUpdateCoordinator` in `__init__.py` owns the update loop. Sensors subscribe via `CoordinatorEntity` and are notified on each refresh.
-- **API client** (`api_client.py`): Manages OAuth token lifecycle (client credentials grant, auto-refresh on expiry), fetches all station/price data in batches, enforces `MIN_REQUEST_INTERVAL_SECONDS` between calls, retries on HTTP 429 with backoff. Haversine distance filtering is done in-process after fetching.
+- **Coordinator pattern**: `FuelPricesDataUpdateCoordinator` in `__init__.py` owns the update loop. Sensors subscribe via `CoordinatorEntity` and are notified on each refresh. Startup refresh is non-blocking (`start_startup_refresh`) with a 30-second delay before retry on failure, and config entries are staggered by 15 seconds each to avoid API burst load.
+- **API client** (`api_client.py`): Manages OAuth token lifecycle (client credentials grant, auto-refresh on expiry), fetches all station/price data in batches, enforces `MIN_REQUEST_INTERVAL_SECONDS` between calls, retries on HTTP 429 with exponential backoff. **Critical**: rate-limit state, request serialisation, and token caching are **global** across all `FuelPricesAPI` instances — multiple config entries sharing the same credentials share one token and never fire simultaneous requests. Haversine distance filtering is done in-process after fetching.
 - **Location** (`location.py`): Resolves user input to `(lat, lon)` — tries coordinate parse → postcode API (postcodes.io) → Nominatim geocoder in that order. Nominatim calls are synchronous (`requests`) and **must** be offloaded with `async_add_executor_job` where called from async context.
 - **Config flow**: Three UI location methods — map pin (HA `location` selector), postcode/address text, and device tracker entity. Options flow allows reconfiguring radius, fuel types, cheapest/nearest count, and update interval without re-entering credentials. A fourth path, `async_step_import`, handles `configuration.yaml` entries (SOURCE_IMPORT) — see §5.
 - **Sensors**: One `CheapestFuelSensor` per fuel type per rank (1st–5th cheapest) and optionally nearest-distance sensors. Sensor state is the price in pence; attributes carry station name, brand, address, postcode, distance, lat/lon, and last_updated.
@@ -59,10 +59,13 @@ scripts/
 ### 2. API Client Performance & Reliability
 The `api_client.py` is the most latency-sensitive code path.
 
-- **OAuth token caching**: The token must be cached in memory with an expiry check. Never re-request a token that is still valid. Token refresh must be awaited before any API call.
-- **Batch fetching**: Station info (`/api/v1/pfs`) and prices (`/api/v1/pfs/fuel-prices`) are fetched in separate paginated batches. Keep `MAX_BATCHES` accurate; do not fetch pages beyond what the API signals as complete.
-- **Rate limiting**: Enforce `MIN_REQUEST_INTERVAL_SECONDS` (2.05 s) between requests. Use `asyncio.sleep` — never a blocking `time.sleep`.
-- **429 handling**: Retry up to `MAX_429_RETRIES` times with `DEFAULT_429_BACKOFF_SECONDS` exponential backoff. Log the retry at WARNING level.
+- **OAuth token caching**: Tokens are cached in memory with an expiry check. Never re-request a token that is still valid. Token refresh must be awaited before any API call. **Global token cache** (`_global_token_cache`): instances sharing the same `(client_id, base_url)` reuse one token — the second instance finds it already cached and skips the token endpoint call entirely. When a token is rejected (401/403), the cache entry is invalidated so other instances don't reuse a bad token.
+- **Global request serialisation**: `_global_request_lock` ensures only one HTTP request to the Fuel Finder API is in-flight at a time across all config entries. `_global_last_request_at` enforces `MIN_REQUEST_INTERVAL_SECONDS` (2.05 s) globally. This prevents multiple config entries from firing simultaneous requests that trigger rate limiting.
+- **Global 429 cooldown**: `_global_429_cooldown_until` is set when any instance receives a 429. All instances check this cooldown before making requests and sleep until it elapses. This prevents compounding rate-limit violations when multiple entries are active.
+- **Batch fetching**: Station info (`/api/v1/pfs`) and prices (`/api/v1/pfs/fuel-prices`) are fetched in separate paginated batches with a 1-second inter-fetch pause between them. Keep `MAX_BATCHES` accurate; do not fetch pages beyond what the API signals as complete.
+- **Rate limiting**: Enforce `MIN_REQUEST_INTERVAL_SECONDS` (2.05 s) between requests globally via `_global_last_request_at`. Use `asyncio.sleep` — never a blocking `time.sleep`.
+- **429 handling**: Retry up to `MAX_429_RETRIES` (3) times with exponential backoff (`DEFAULT_429_BACKOFF_SECONDS` × `RATE_LIMIT_BACKOFF_MULTIPLIER^retry_count`, capped at `RATE_LIMIT_MAX_BACKOFF_SECONDS` = 60 s). The token endpoint also retries on 429 with the same exponential backoff. Log retries at WARNING level. On token rejection (401/403), invalidate the shared token cache and retry once with a fresh token.
+- **Startup stagger**: Config entries are staggered by 15 seconds each during startup (`start_startup_refresh(delay_seconds=...)`). On initial refresh failure, the coordinator waits 30 seconds before retrying instead of hammering the API immediately.
 - **Timeout**: All HTTP calls use `ClientTimeout(total=DEFAULT_TIMEOUT_SECONDS)`. Do not raise this without justification.
 - **Distance filtering**: Haversine calculation in `api_client.py` is CPU-bound but fast at typical station counts — no executor needed. Do not introduce `geopy.distance` here; the in-process haversine is intentional to avoid the executor overhead.
 
@@ -117,17 +120,20 @@ The `api_client.py` is the most latency-sensitive code path.
 - DO NOT store credentials, tokens, or OAuth secrets anywhere outside `entry.data` (not in logs, attributes, or state).
 - DO NOT log `client_id` or `client_secret` at any log level — use the `_redacted_entry_data` helper in `__init__.py`.
 - ALWAYS preserve the `MIN_REQUEST_INTERVAL_SECONDS` guard in `api_client.py` — removing it risks hitting Fuel Finder API rate limits for all users.
+- ALWAYS preserve the global state variables in `api_client.py` (`_global_request_lock`, `_global_last_request_at`, `_global_429_cooldown_until`, `_global_token_cache`, `_global_token_lock`) — they must remain module-level, not per-instance, to prevent multiple config entries from firing simultaneous requests or requesting duplicate tokens.
 
 ## Debugging Guide
 
 | Symptom | Where to look |
 |---------|---------------|
-| Sensors unavailable after setup | `__init__.py` coordinator first-refresh; check `ConfigEntryNotReady` path |
-| `401 Unauthorized` from API | `api_client.py` token fetch; verify `client_id`/`client_secret` are not empty strings |
+| Sensors unavailable after setup | `__init__.py` coordinator first-refresh; check `ConfigEntryNotReady` path; check logs for 429 cascade or token rejection loop |
+| `401 Unauthorized` from API | `api_client.py` token fetch; verify `client_id`/`client_secret` are not empty strings; check `_global_token_cache` invalidation on 401/403 |
 | Sensors stuck on old values | Coordinator `update_interval`; confirm `async_config_entry_first_refresh` succeeds |
 | Location not resolving | `location.py` `get_lat_lon`; check postcodes.io reachable, Nominatim not rate-limited |
 | Prices in wrong unit (e.g. £1.50 vs 150p) | `price_parser.py` `coerce_price`; check raw API response value scale |
-| `429 Too Many Requests` | `api_client.py` `MAX_429_RETRIES` / `DEFAULT_429_BACKOFF_SECONDS`; may need longer backoff |
+| `429 Too Many Requests` | `api_client.py` global state: `_global_429_cooldown_until`, `_global_request_lock`, `_global_token_cache`; check that multiple config entries share credentials and aren't firing simultaneous requests; verify exponential backoff (`RATE_LIMIT_BACKOFF_MULTIPLIER`), global cooldown, and startup stagger are working |
+| Duplicate simultaneous API requests | `api_client.py` `_global_request_lock` and `_global_last_request_at` — these must be module-level globals, not per-instance, to serialise requests across config entries |
+| Token rejection loop (repeated 401/403) | `api_client.py` `_get_access_token` and `_api_get` — check that `_global_token_cache` is invalidated on 401/403 and that the retry-with-refresh path works; verify `_global_token_lock` prevents duplicate token requests |
 | Config flow map selector missing | `manifest.json` `dependencies`: must include `"http"` and `"frontend"` |
 | Options flow resets credentials | Ensure credentials are in `entry.data`, not `entry.options` |
 | YAML import creates duplicate entries | `async_step_import` unique ID: `f"{client_id}:{name}"` — add `name:` to YAML to distinguish instances |

@@ -64,6 +64,12 @@ _global_429_cooldown_until: float = 0.0
 _global_request_lock = asyncio.Lock()
 _global_last_request_at: float | None = None
 
+# Shared token cache keyed by (client_id, base_url) so that config entries
+# sharing the same Fuel Finder credentials reuse one token instead of each
+# requesting their own, halving the number of token endpoint calls.
+_global_token_cache: dict[tuple[str, str], tuple[str, datetime]] = {}
+_global_token_lock = asyncio.Lock()
+
 
 @dataclass
 class StationRecord:
@@ -110,7 +116,6 @@ class FuelPricesAPI:
         self._station_index: dict[str, dict[str, Any]] = {}
         self._last_refresh: datetime | None = None
         self._lock = asyncio.Lock()
-        self._token_lock = asyncio.Lock()
         self._access_token: str | None = None
         self._token_expiry: datetime | None = None
 
@@ -360,6 +365,12 @@ class FuelPricesAPI:
                             response_payload = await _parse_json_response(response)
                             if response.status in (401, 403) and attempt == 1:
                                 _LOGGER.info("Fuel Finder token rejected, refreshing OAuth token and retrying")
+                                # Invalidate shared token cache so other instances
+                                # don't reuse a rejected token.
+                                cache_key = (self._client_id, self._base_url)
+                                _global_token_cache.pop(cache_key, None)
+                                self._access_token = None
+                                self._token_expiry = None
                                 token_rejected = True
                                 break
 
@@ -468,12 +479,27 @@ class FuelPricesAPI:
         if not self._client_id or not self._client_secret:
             raise RuntimeError("Fuel Finder API credentials are missing")
 
+        cache_key = (self._client_id, self._base_url)
+
+        # Fast path: check instance-local token first (avoids lock contention)
         if not force_refresh and self._token_is_valid:
             return self._access_token or ""
 
-        async with self._token_lock:
+        # Slow path: acquire global token lock to deduplicate across instances
+        async with _global_token_lock:
+            # Re-check instance-local token after acquiring lock
             if not force_refresh and self._token_is_valid:
                 return self._access_token or ""
+
+            # Check shared cache — another instance may have just obtained a token
+            cached = _global_token_cache.get(cache_key)
+            if cached and not force_refresh:
+                cached_token, cached_expiry = cached
+                if datetime.now(timezone.utc) < cached_expiry:
+                    self._access_token = cached_token
+                    self._token_expiry = cached_expiry
+                    _LOGGER.debug("Fuel Finder reusing cached token (expires %s)", cached_expiry.isoformat())
+                    return cached_token
 
             timeout = ClientTimeout(total=DEFAULT_TIMEOUT_SECONDS)
             headers = {**DEFAULT_HEADERS, "Content-Type": "application/json", "Accept": "application/json"}
@@ -548,6 +574,12 @@ class FuelPricesAPI:
 
             self._access_token = token
             self._token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expiry_seconds - 60)
+
+            # Store in shared cache so other instances with the same credentials
+            # can reuse this token without hitting the endpoint again.
+            _global_token_cache[cache_key] = (token, self._token_expiry)
+            _LOGGER.debug("Fuel Finder token obtained and cached (expires %s)", self._token_expiry.isoformat())
+
             return token
 
     @property
