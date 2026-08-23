@@ -1,29 +1,30 @@
 """Validate sample retailer payloads for price extraction and metadata sanity."""
+
 from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from custom_components.fuel_prices_uk.price_parser import coerce_price  # noqa: E402
 from custom_components.fuel_prices_uk.api_client import _parse_datetime  # type: ignore  # noqa: E402
+from custom_components.fuel_prices_uk.price_parser import coerce_price  # noqa: E402
 
 EXAMPLES_DIR = REPO_ROOT / "examples"
 
 
-def _iter_price_entries(station: Dict[str, Any]):
+def _iter_price_entries(station: dict[str, Any]):
     prices = station.get("prices")
     if isinstance(prices, dict):
-        for fuel_type, payload in prices.items():
-            yield fuel_type, payload
+        yield from prices.items()
 
 
-def _extract_lat_lon(station: Dict[str, Any]) -> Tuple[Optional[float], Optional[float]]:
+def _extract_lat_lon(station: dict[str, Any]) -> tuple[float | None, float | None]:
     lat = station.get("latitude") or station.get("lat")
     lon = station.get("longitude") or station.get("lon")
     if lat is not None and lon is not None:
@@ -38,7 +39,7 @@ def _extract_lat_lon(station: Dict[str, Any]) -> Tuple[Optional[float], Optional
     return None, None
 
 
-def _extract_timestamp_sources(*entries: Optional[Dict[str, Any]]) -> Optional[Any]:
+def _extract_timestamp_sources(*entries: dict[str, Any] | None) -> Any | None:
     keys = ("last_updated", "timestamp", "updated", "date")
     for entry in entries:
         if not isinstance(entry, dict):
@@ -50,14 +51,14 @@ def _extract_timestamp_sources(*entries: Optional[Dict[str, Any]]) -> Optional[A
     return None
 
 
-def _gather_station_checks(station: Dict[str, Any]) -> Iterable[str]:
+def _gather_station_checks(station: dict[str, Any]) -> Iterable[str]:
     lat, lon = _extract_lat_lon(station)
     if lat is None or lon is None:
         yield "missing latitude/longitude"
 
 
 def _gather_price_checks(
-    sample_name: str, station_id: str, fuel_type: str, payload: Any, station: Dict[str, Any]
+    sample_name: str, station_id: str, fuel_type: str, payload: Any, station: dict[str, Any]
 ) -> Iterable[str]:
     parsed = coerce_price(payload)
     if parsed is None:
@@ -73,8 +74,7 @@ def _gather_price_checks(
     timestamp_source = _extract_timestamp_sources(payload_dict, station)
     if timestamp_source is not None and _parse_datetime(timestamp_source) is None:
         yield (
-            f"{sample_name} :: {station_id} :: {fuel_type} -> timestamp {timestamp_source!r}"
-            " could not be normalised"
+            f"{sample_name} :: {station_id} :: {fuel_type} -> timestamp {timestamp_source!r} could not be normalised"
         )
 
 
@@ -120,9 +120,7 @@ def main() -> int:
         print("Sample validation failed for the following entries:\n")
         for failure in failures:
             print(f" - {failure}")
-        print(
-            f"\nChecked {total_prices} price entries and {total_stations} stations across {len(sample_files)} files."
-        )
+        print(f"\nChecked {total_prices} price entries and {total_stations} stations across {len(sample_files)} files.")
         return 1
 
     print(

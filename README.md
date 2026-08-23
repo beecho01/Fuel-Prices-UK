@@ -19,6 +19,11 @@
     <img src="https://img.shields.io/github/languages/code-size/beecho01/Fuel-Prices-UK?style=for-the-badge&color=FFFFFF">
     <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/github/license/beecho01/Fuel-Prices-UK?style=for-the-badge&logoColor=white&label=License&color=C8102E"></a>
   </p>
+  <p align="center">
+    <a href="https://github.com/beecho01/Fuel-Prices-UK/actions/workflows/test.yaml"><img src="https://github.com/beecho01/Fuel-Prices-UK/actions/workflows/test.yaml/badge.svg"></a>
+    <a href="https://github.com/beecho01/Fuel-Prices-UK/actions/workflows/hassfest.yml"><img src="https://github.com/beecho01/Fuel-Prices-UK/actions/workflows/hassfest.yml/badge.svg"></a>
+    <a href="https://github.com/beecho01/Fuel-Prices-UK/actions/workflows/validate.yaml"><img src="https://github.com/beecho01/Fuel-Prices-UK/actions/workflows/validate.yaml/badge.svg"></a>
+  </p>
 </div>
 
 ## Features
@@ -440,10 +445,46 @@ If the Fuel Finder API is slow, sensors can remain unavailable for a short perio
 - Check logs for `[coordinator][startup_refresh]` messages
 - If the first sync fails, the scheduled refresh cycle will retry automatically
 
+### "Unsupported YAML configuration for the command_line integration"
+
+This error appears on HA 2026.6.0+ if you have a **leftover `command_line` sensor** in your `sensors.yaml` or `configuration.yaml` from an older, pre-HACS manual setup of this integration (for example a `fuel_finder_local.py` script invoked via `sensor: - platform: command_line`).
+
+The HACS integration provides all fuel price sensors natively through its config flow — **the old command_line script is no longer needed and should be removed entirely.**
+
+To resolve:
+
+1. Open your `sensors.yaml` (or `configuration.yaml`) and **delete** the entire `command_line` sensor block that references `fuel_finder_local.py` or any fuel-price command:
+
+   ```yaml
+   # ❌ Remove this entire block:
+   sensor:
+     - platform: command_line
+       name: "Cheapest E10 ..."
+       command: "python3 /config/scripts/fuel_finder_local.py ..."
+   ```
+
+2. If you still need a `command_line` sensor for an unrelated purpose, move it under the top-level `command_line:` key as required by HA 2026.6.0+:
+
+   ```yaml
+   # ✅ Correct (HA 2026.6.0+):
+   command_line:
+     - sensor:
+         name: "My Other Sensor"
+         command: "..."
+   ```
+
+3. You can also safely delete the `/config/scripts/fuel_finder_local.py` script file itself — it is not used by the HACS integration.
+
+4. Restart Home Assistant.
+
+The Fuel Prices UK integration sensors (e.g. `sensor.fuel_price_uk_*_cheapest_e10`) will continue to work as before — they are created by the integration, not by the command_line script.
+
 ## Development & Verification
 
+- Run `pytest tests/ -v` to run the automated test suite (pure-logic and mocked-API — no live credentials needed). See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, linting, and PR guidelines.
 - Run `python scripts/check_api_client.py --client-id YOUR_ID --client-secret YOUR_SECRET` to perform a quick end-to-end check against the Fuel Finder API.
 - You can also set `FUEL_FINDER_CLIENT_ID` and `FUEL_FINDER_CLIENT_SECRET` environment variables and run the same script without flags.
+- `python scripts/check_incremental_formats.py` probes the live incremental endpoints with several `effective-start-timestamp` formats — useful if the Fuel Finder API's behaviour changes again.
 
 ## Known Limitations
 

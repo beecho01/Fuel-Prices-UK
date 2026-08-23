@@ -1,7 +1,18 @@
-# Development dependencies for local type checking / IDE support.
-# These packages are provided by the Home Assistant runtime environment;
-# they are listed here only so editors/Pyright can resolve imports locally.
+# Development dependencies for local type checking / IDE support and for
+# running the test suite (pytest tests/).
+#
+# homeassistant/aiohttp/geopy/voluptuous/requests are provided by the Home
+# Assistant runtime environment in production; they're listed here so
+# editors/Pyright can resolve imports locally and so the integration's own
+# modules (which import homeassistant.* directly) can be imported by tests.
 homeassistant>=2024.1.0
 aiohttp>=3.9.0
 geopy>=2.4.0
 voluptuous>=0.13.1
+requests>=2.31.0
+
+# Test-only dependencies.
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+aioresponses>=0.7.6
+ruff>=0.6.0

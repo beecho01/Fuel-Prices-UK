@@ -82,6 +82,14 @@ When sensors update:
 
 ## Common Issues
 
+### "Unsupported YAML configuration for the command_line integration"
+
+This error appears on HA 2026.6.0+ if you have a leftover `command_line` sensor in `sensors.yaml` or `configuration.yaml` from an older, pre-HACS manual setup of this integration (for example a `fuel_finder_local.py` script invoked via `sensor: - platform: command_line`).
+
+The HACS integration provides all fuel price sensors natively — the old command_line script is no longer needed.
+
+**Fix:** Remove the entire `command_line` sensor block referencing `fuel_finder_local.py` from your YAML, then restart Home Assistant. See the [README troubleshooting section](../README.md#unsupported-yaml-configuration-for-the-command_line-integration) for full details.
+
 ### No Logs Appearing
 1. **Check logger configuration** - Make sure you added the logger config to `configuration.yaml`
 2. **Restart Home Assistant** - Logging config requires a restart

@@ -3,10 +3,9 @@
     "name": "Fuel Prices UK",
     "codeowners": ["@beecho01"],
     "config_flow": true,
-    "dependencies": ["http", "frontend"],
     "documentation": "https://github.com/beecho01/Fuel-Prices-UK",
     "iot_class": "cloud_polling",
     "issue_tracker": "https://github.com/beecho01/Fuel-Prices-UK/issues",
-    "requirements": ["geopy>=2.2.0"],
-    "version": "2026.05.22"
+    "requirements": ["geopy>=2.2.0", "requests>=2.31.0"],
+    "version": "2026.08.23"
 }

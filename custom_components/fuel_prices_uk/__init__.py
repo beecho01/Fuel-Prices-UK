@@ -1,53 +1,51 @@
 """The Fuel Prices UK integration."""
+
 from __future__ import annotations
+
 import asyncio
 import logging
-from datetime import timedelta
-from typing import Any, Mapping
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
+import homeassistant.helpers.config_validation as cv
+import homeassistant.helpers.issue_registry as ir
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry, SOURCE_IMPORT
-from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
 
+from .api_client import FuelPricesAPI
 from .const import (
-    DOMAIN,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_DEVICE_TRACKER,
-    CONF_LOCATION_METHOD,
-    CONF_UPDATE_INTERVAL,
-    CONF_STATIONS,
     CONF_FUELTYPES,
-    ENTRY_TITLE,
     CONF_LOCATION,
+    CONF_LOCATION_METHOD,
     CONF_RADIUS,
-    CONF_ADDRESS,
-    CONF_CHEAPEST_COUNT,
-    CONF_NEAREST_COUNT,
-    CONF_MAX_DATA_AGE_DAYS,
-    DEFAULT_UPDATE_INTERVAL,
+    CONF_STATIONS,
+    CONF_UPDATE_INTERVAL,
+    CONSECUTIVE_FAILURE_THRESHOLD,
     DEFAULT_CHEAPEST_COUNT,
-    DEFAULT_NEAREST_COUNT,
     DEFAULT_MAX_DATA_AGE_DAYS,
-    MIN_CHEAPEST_COUNT,
+    DEFAULT_NEAREST_COUNT,
+    DEFAULT_UPDATE_INTERVAL,
+    DOMAIN,
+    ENTRY_TITLE,
+    FUEL_TYPE_B7,
+    FUEL_TYPE_E5,
+    FUEL_TYPE_E10,
+    FUEL_TYPE_SDV,
     MAX_CHEAPEST_COUNT,
     MAX_NEAREST_COUNT,
-    FUEL_TYPE_E10,
-    FUEL_TYPE_E5,
-    FUEL_TYPE_B7,
-    FUEL_TYPE_SDV,
-    MILES_TO_KM,
-    KM_TO_MILES,
+    MIN_CHEAPEST_COUNT,
 )
-from .api_client import FuelPricesAPI
 from .fetch_prices import fetch_stations_by_criteria
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,9 +73,7 @@ _INSTANCE_SCHEMA = vol.Schema(
         vol.Optional("radius"): vol.Schema(
             {
                 vol.Required("type"): vol.In(["miles", "km"]),
-                vol.Required("value"): vol.All(
-                    vol.Coerce(float), vol.Range(min=0.1, max=200)
-                ),
+                vol.Required("value"): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=200)),
             }
         ),
         # Fuel types as a boolean map; omit to default to E10 + B7
@@ -92,25 +88,21 @@ _INSTANCE_SCHEMA = vol.Schema(
         # Sensor count options
         vol.Optional("count"): vol.Schema(
             {
-                vol.Optional(
-                    "cheapest", default=DEFAULT_CHEAPEST_COUNT
-                ): vol.All(
+                vol.Optional("cheapest", default=DEFAULT_CHEAPEST_COUNT): vol.All(
                     vol.Coerce(int),
                     vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT),
                 ),
-                vol.Optional(
-                    "nearest", default=DEFAULT_NEAREST_COUNT
-                ): vol.All(
+                vol.Optional("nearest", default=DEFAULT_NEAREST_COUNT): vol.All(
                     vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)
                 ),
             }
         ),
-        vol.Optional(
-            "ignore_stale_data_days", default=DEFAULT_MAX_DATA_AGE_DAYS
-        ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
-        vol.Optional(
-            CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL
-        ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+        vol.Optional("ignore_stale_data_days", default=DEFAULT_MAX_DATA_AGE_DAYS): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=30)
+        ),
+        vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
+            vol.Coerce(int), vol.Range(min=300, max=86400)
+        ),
     }
 )
 
@@ -196,7 +188,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Perform first refresh in the background so setup is not blocked by slow API paging.
     # Stagger startup refreshes across config entries to avoid hammering the API
     # with simultaneous requests when multiple locations are configured.
-    entry_index = len([k for k in domain_data if k != "_entry_counter"])
     domain_data.setdefault("_entry_counter", 0)
     domain_data["_entry_counter"] += 1
     stagger_delay = (domain_data["_entry_counter"] - 1) * 15  # 15s between each entry
@@ -240,6 +231,9 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
         self._logger = _LOGGER
         self.api_client = api_client
         self._startup_refresh_task: asyncio.Task[None] | None = None
+        self._consecutive_failures = 0
+        self._first_failure_at: datetime | None = None
+        self._stale_data_issue_id = f"stale_data_{entry.entry_id}"
 
         # Issue #10: resolve device_tracker entity_id for dynamic location
         self.device_tracker_entity_id: str | None = (
@@ -250,7 +244,10 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
 
         _LOGGER.info(
             "[coordinator][__init__] Initialising with location=%s, radius=%s km, fuel_types=%s, update_interval=%s",
-            self.location, self.radius, self.fuel_types, update_interval
+            self.location,
+            self.radius,
+            self.fuel_types,
+            update_interval,
         )
 
         super().__init__(
@@ -297,9 +294,7 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
                 _LOGGER.info("[coordinator][startup_refresh] Initial refresh completed successfully")
                 return
 
-            _LOGGER.warning(
-                "[coordinator][startup_refresh] Initial refresh was unsuccessful; waiting 30s before retry"
-            )
+            _LOGGER.warning("[coordinator][startup_refresh] Initial refresh was unsuccessful; waiting 30s before retry")
             try:
                 await asyncio.sleep(30)
             except asyncio.CancelledError:
@@ -340,7 +335,7 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
         """Fetch data from fuel price sources."""
         try:
             _LOGGER.info("[coordinator][_async_update_data] Starting data update cycle")
-            
+
             # Determine search criteria based on configuration
             latitude = self.location.get("latitude") if self.location else None
             longitude = self.location.get("longitude") if self.location else None
@@ -357,7 +352,9 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
                             longitude = float(tracker_lon)
                             _LOGGER.debug(
                                 "[coordinator][_async_update_data] Using device_tracker %s location: lat=%s, lon=%s",
-                                self.device_tracker_entity_id, latitude, longitude,
+                                self.device_tracker_entity_id,
+                                latitude,
+                                longitude,
                             )
                         else:
                             _LOGGER.warning(
@@ -375,23 +372,25 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
                         self.device_tracker_entity_id,
                         tracker_state.state if tracker_state else "<not found>",
                     )
-            
+
             _LOGGER.info("[coordinator][_async_update_data] Search coordinates: lat=%s, lon=%s", latitude, longitude)
             _LOGGER.info("[coordinator][_async_update_data] Fuel types to search: %s", self.fuel_types)
-            
+
             # Fetch stations based on criteria
             if latitude and longitude:
                 # Radius-based search
                 _LOGGER.info(
                     "[coordinator][_async_update_data] Performing radius-based search: lat=%s, lon=%s, radius=%s km",
-                    latitude, longitude, self.radius
+                    latitude,
+                    longitude,
+                    self.radius,
                 )
                 stations_data = await fetch_stations_by_criteria(
                     self.api_client,
                     latitude=latitude,
                     longitude=longitude,
                     radius_km=self.radius,
-                    fuel_types=self.fuel_types
+                    fuel_types=self.fuel_types,
                 )
             elif self.stations and len(self.stations) > 0:
                 # Specific station search
@@ -401,10 +400,7 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
                     site_id = station_config.get("site_id")
                     if site_id:
                         _LOGGER.debug("Fetching station with site_id: %s", site_id)
-                        station_data = await fetch_stations_by_criteria(
-                            self.api_client,
-                            site_id=site_id
-                        )
+                        station_data = await fetch_stations_by_criteria(self.api_client, site_id=site_id)
                         if station_data:
                             _LOGGER.debug("Found station data for site_id: %s", site_id)
                             stations_data.extend(station_data)
@@ -413,9 +409,10 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
             else:
                 _LOGGER.warning("No valid search criteria in configuration")
                 return []
-            
+
             _LOGGER.info("Successfully fetched %s stations", len(stations_data))
             _LOGGER.debug("Station data: %s", stations_data[:2] if len(stations_data) > 2 else stations_data)
+            self._clear_stale_data_issue()
             return stations_data
 
         except asyncio.CancelledError:
@@ -423,7 +420,47 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
             raise
         except Exception as err:
             _LOGGER.error("Error fetching data: %s", err, exc_info=True)
+            self._record_failure_and_maybe_raise_repair()
             raise UpdateFailed(f"Error fetching data: {err}") from err
+
+    def _clear_stale_data_issue(self) -> None:
+        """Reset the failure streak and clear the stale-data repair on success."""
+        if self._consecutive_failures >= CONSECUTIVE_FAILURE_THRESHOLD:
+            ir.async_delete_issue(self.hass, DOMAIN, self._stale_data_issue_id)
+        self._consecutive_failures = 0
+        self._first_failure_at = None
+
+    def _record_failure_and_maybe_raise_repair(self) -> None:
+        """Track consecutive refresh failures and surface a Repair once they pile up.
+
+        A single failed cycle is normal (transient network blips, upstream
+        API hiccups) and shouldn't alarm anyone. But once refreshes have
+        failed for CONSECUTIVE_FAILURE_THRESHOLD cycles in a row, the
+        displayed prices are meaningfully stale and there's currently
+        nothing in the UI to say so - see GitHub issue #14, where users only
+        discovered this by noticing frozen prices and digging through logs.
+        """
+        self._consecutive_failures += 1
+        if self._first_failure_at is None:
+            self._first_failure_at = datetime.now(UTC)
+
+        if self._consecutive_failures >= CONSECUTIVE_FAILURE_THRESHOLD:
+            # Re-creating an issue with the same id updates it in place
+            # (keeping failure_count/since current) rather than duplicating
+            # or re-notifying, so this is safe to call on every failure once
+            # the threshold is reached.
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                self._stale_data_issue_id,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="stale_data",
+                translation_placeholders={
+                    "failure_count": str(self._consecutive_failures),
+                    "since": self._first_failure_at.isoformat(timespec="seconds"),
+                },
+            )
 
 
 def _redacted_entry_data(data: Mapping[str, Any]) -> dict[str, Any]:

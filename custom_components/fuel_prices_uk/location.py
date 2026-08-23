@@ -1,5 +1,7 @@
 """Location utilities for geocoding and coordinate validation."""
+
 from __future__ import annotations
+
 import json
 import logging
 
@@ -9,6 +11,7 @@ from geopy.exc import GeocoderUnavailable
 from geopy.geocoders import Nominatim
 
 _LOGGER = logging.getLogger(__name__)
+
 
 def get_lat_lon(query: str) -> tuple[float | None, float | None]:
     query = query.strip()
@@ -66,18 +69,12 @@ def is_location(query: str) -> tuple[float | None, float | None]:
     results = fetch_postcode_data(url)
 
     if results:
-        filtered_results = [
-            result
-            for result in results
-            if result.get("name_1", "").lower() == query.lower()
-        ]
+        filtered_results = [result for result in results if result.get("name_1", "").lower() == query.lower()]
 
         if not filtered_results:
             return None, None
 
-        ranked_results = sorted(
-            filtered_results, key=lambda r: rank_local_type(r.get("local_type"))
-        )
+        ranked_results = sorted(filtered_results, key=lambda r: rank_local_type(r.get("local_type")))
 
         best_match = ranked_results[0]
         return best_match.get("latitude"), best_match.get("longitude")
@@ -98,6 +95,7 @@ def rank_local_type(local_type: str | None) -> int:
         return 999
     return priority.get(local_type, 999)
 
+
 def fetch_postcode_data(url: str) -> dict | None:
     response = None
     try:
@@ -116,13 +114,16 @@ def fetch_postcode_data(url: str) -> dict | None:
         _LOGGER.error("Postcode - JSON decoding error occurred: %s", json_err)
     return None
 
-def is_within_distance(user_location: dict[str, float], station_location: dict[str, float], radius: float = 5, unit: str = 'mi') -> bool:
+
+def is_within_distance(
+    user_location: dict[str, float], station_location: dict[str, float], radius: float = 5, unit: str = "mi"
+) -> bool:
     unit = unit.lower()
-    if unit not in ('km', 'mi'):
+    if unit not in ("km", "mi"):
         raise ValueError("Invalid unit. Please use 'km' or 'mi'.")
 
     user_coords = (user_location["latitude"], user_location["longitude"])
     station_coords = (station_location["latitude"], station_location["longitude"])
     calculated_distance = distance.distance(user_coords, station_coords)
 
-    return (calculated_distance.km if unit == 'km' else calculated_distance.miles) <= radius
+    return (calculated_distance.km if unit == "km" else calculated_distance.miles) <= radius

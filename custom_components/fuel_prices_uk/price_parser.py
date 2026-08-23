@@ -1,7 +1,9 @@
 """Utility helpers for normalising retailer price payloads."""
+
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 PRICE_KEYS_PRIMARY: tuple[str, ...] = (
     "price",
@@ -23,8 +25,7 @@ def _iter_candidates(entry: Any) -> Iterable[Any]:
         for key in PRICE_KEYS_PRIMARY:
             if key in entry:
                 yield entry[key]
-        for maybe_value in entry.values():
-            yield maybe_value
+        yield from entry.values()
     elif isinstance(entry, (list, tuple, set)):
         for item in entry:
             yield from _iter_candidates(item)

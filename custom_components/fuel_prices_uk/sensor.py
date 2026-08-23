@@ -1,13 +1,14 @@
 """Sensor platform for the Fuel Prices UK integration."""
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
-from homeassistant.const import ATTR_ATTRIBUTION
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_ATTRIBUTION
 from homeassistant.core import callback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
@@ -16,8 +17,8 @@ from .const import (
     ATTR_ADDRESS,
     ATTR_BRAND,
     ATTR_DISTANCE,
-    ATTR_LATITUDE,
     ATTR_LAST_UPDATED,
+    ATTR_LATITUDE,
     ATTR_LONGITUDE,
     ATTR_POSTCODE,
     ATTR_STATION_NAME,
@@ -32,17 +33,17 @@ from .const import (
     DEFAULT_MAX_DATA_AGE_DAYS,
     DEFAULT_NEAREST_COUNT,
     DOMAIN,
+    ENTRY_TITLE,
     KM_TO_MILES,
     MAX_CHEAPEST_COUNT,
     MAX_NEAREST_COUNT,
     MIN_CHEAPEST_COUNT,
-    ENTRY_TITLE,
 )
+from .price_parser import coerce_price
 
 _LOGGER = logging.getLogger(__name__)
 
 ATTRIBUTION = "Data provided by UK Government Fuel Price open data scheme"
-from .price_parser import coerce_price
 
 
 def _entry_config(entry: ConfigEntry) -> dict[str, Any]:
@@ -63,10 +64,7 @@ def _base_attributes(fuel_type: str, price_rank: int) -> dict[str, Any]:
 
 
 def _ordinal(rank: int) -> str:
-    if rank % 100 in (11, 12, 13):
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(rank % 10, "th")
+    suffix = "th" if rank % 100 in (11, 12, 13) else {1: "st", 2: "nd", 3: "rd"}.get(rank % 10, "th")
     return f"{rank}{suffix}"
 
 
@@ -103,7 +101,7 @@ def _parse_last_updated(value: str | None) -> datetime | None:
         try:
             dt = datetime.strptime(value, fmt)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=UTC)
             return dt
         except ValueError:
             continue
@@ -246,7 +244,7 @@ class CheapestFuelPriceSensor(CoordinatorEntity, SensorEntity):  # type: ignore[
         max_data_age_days = int(entry_config.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS))
         staleness_cutoff: datetime | None = None
         if max_data_age_days > 0:
-            staleness_cutoff = datetime.now(timezone.utc) - timedelta(days=max_data_age_days)
+            staleness_cutoff = datetime.now(UTC) - timedelta(days=max_data_age_days)
 
         for station in data:
             if not isinstance(station, dict):
@@ -413,13 +411,9 @@ class NearestFuelStationSensor(CheapestFuelPriceSensor):
         location_label, location_slug = _derive_location_strings(entry)
         fuel_slug = slugify(fuel_type) or fuel_type.lower()
         rank_label = _ordinal(nearest_rank)
-        self.entity_id = (
-            f"sensor.fuel_price_uk_{location_slug}_nearest_{nearest_rank}_{fuel_slug}"
-        )
+        self.entity_id = f"sensor.fuel_price_uk_{location_slug}_nearest_{nearest_rank}_{fuel_slug}"
         self._attr_unique_id = f"{entry.entry_id}_{fuel_type}_nearest_{nearest_rank}"
-        self._attr_name = (
-            f"{ENTRY_TITLE} ({location_label}) - {rank_label} Nearest {fuel_type}"
-        )
+        self._attr_name = f"{ENTRY_TITLE} ({location_label}) - {rank_label} Nearest {fuel_type}"
         self._rank_label = rank_label
 
     def _refresh_snapshot(self) -> None:
@@ -435,7 +429,7 @@ class NearestFuelStationSensor(CheapestFuelPriceSensor):
         max_data_age_days = int(entry_config.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS))
         staleness_cutoff: datetime | None = None
         if max_data_age_days > 0:
-            staleness_cutoff = datetime.now(timezone.utc) - timedelta(days=max_data_age_days)
+            staleness_cutoff = datetime.now(UTC) - timedelta(days=max_data_age_days)
 
         # Collect stations with a valid price for this fuel type, sorted by distance
         distance_candidates: list[tuple[float, dict[str, Any]]] = []
@@ -459,17 +453,13 @@ class NearestFuelStationSensor(CheapestFuelPriceSensor):
             distance_candidates.append((dist, station))
 
         # Sort by distance ascending, then by site_id for stability
-        distance_candidates.sort(
-            key=lambda item: (item[0], str(item[1].get("site_id") or ""))
-        )
+        distance_candidates.sort(key=lambda item: (item[0], str(item[1].get("site_id") or "")))
 
         selected_price: float | None = None
         selected_station: dict[str, Any] | None = None
         if len(distance_candidates) >= self._price_rank:
             _, selected_station = distance_candidates[self._price_rank - 1]
-            selected_price = coerce_price(
-                selected_station.get("prices", {}).get(self._fuel_type)
-            )
+            selected_price = coerce_price(selected_station.get("prices", {}).get(self._fuel_type))
 
         self._station_data = selected_station if isinstance(selected_station, dict) else None
         self._attr_native_value = selected_price

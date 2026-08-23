@@ -1,13 +1,15 @@
 """Fuel Finder (UK Government) API client for Home Assistant."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from math import asin, cos, radians, sin, sqrt
-from typing import Any, Iterable
+from typing import Any
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
 from homeassistant.core import HomeAssistant
@@ -177,9 +179,7 @@ class FuelPricesAPI:
         await self._get_access_token(force_refresh=True)
         return True
 
-    def sort_by_fuel_price(
-        self, stations: Iterable[dict[str, Any]], fuel_type: str
-    ) -> list[dict[str, Any]]:
+    def sort_by_fuel_price(self, stations: Iterable[dict[str, Any]], fuel_type: str) -> list[dict[str, Any]]:
         """Return stations sorted by fuel price for the provided fuel type."""
         if fuel_type not in SUPPORTED_FUEL_TYPES:
             return list(stations)
@@ -207,20 +207,25 @@ class FuelPricesAPI:
     def _data_fresh(self) -> bool:
         if self._last_refresh is None:
             return False
-        return (datetime.now(timezone.utc) - self._last_refresh).total_seconds() < self._cache_seconds
+        return (datetime.now(UTC) - self._last_refresh).total_seconds() < self._cache_seconds
 
     async def _refresh(self) -> None:
         is_incremental = bool(self._last_refresh and self._station_index)
-        incremental_date = self._last_refresh.date().isoformat() if self._last_refresh else None
+        # Fuel Finder's incremental endpoints expect "YYYY-MM-DD HH:MM:SS"
+        # (matching the API docs' request example), not a bare date - a
+        # date-only value is silently rejected with an undocumented 404
+        # instead of the documented 400, forcing a full-snapshot fallback
+        # on every refresh.
+        incremental_timestamp = self._last_refresh.strftime("%Y-%m-%d %H:%M:%S") if self._last_refresh else None
 
         try:
-            if is_incremental and incremental_date:
-                stations = await self._fetch_station_info(effective_start=incremental_date)
+            if is_incremental and incremental_timestamp:
+                stations = await self._fetch_station_info(effective_start=incremental_timestamp)
                 await self._inter_fetch_pause()
-                prices = await self._fetch_station_prices(effective_start=incremental_date)
+                prices = await self._fetch_station_prices(effective_start=incremental_timestamp)
                 if not stations and not prices:
                     _LOGGER.debug("Fuel Finder incremental refresh reported no station or price updates")
-                    self._last_refresh = datetime.now(timezone.utc)
+                    self._last_refresh = datetime.now(UTC)
                     return
                 self._merge_station_info(stations)
                 self._merge_station_prices(prices)
@@ -261,7 +266,7 @@ class FuelPricesAPI:
             raise RuntimeError("Fuel Finder response had no stations with usable coordinates")
 
         self._stations = station_records
-        self._last_refresh = datetime.now(timezone.utc)
+        self._last_refresh = datetime.now(UTC)
 
     async def _fetch_station_info(self, *, effective_start: str | None = None) -> list[dict[str, Any]]:
         return await self._fetch_batched_resource(PFS_INFO_ENDPOINT, effective_start=effective_start)
@@ -296,6 +301,20 @@ class FuelPricesAPI:
                         "Stopping paging %s at batch %s due to 404 (treated as end of pages)",
                         endpoint,
                         batch_number,
+                    )
+                    break
+                if err.status_code == 404 and batch_number == 1 and effective_start:
+                    # The incremental endpoints signal "no records changed since
+                    # effective_start" with a 404 on batch 1 instead of 200 [].
+                    # Confirmed against the live API: this happens regardless of
+                    # effective-start-timestamp format, so it is not a malformed
+                    # request - treat it as an empty incremental result rather
+                    # than aborting the whole refresh and falling back to a full
+                    # snapshot.
+                    _LOGGER.debug(
+                        "No incremental updates for %s since %s (404 on batch 1)",
+                        endpoint,
+                        effective_start,
                     )
                     break
                 raise
@@ -382,7 +401,7 @@ class FuelPricesAPI:
                                 backoff_seconds = _extract_retry_after_seconds(response)
                                 # Exponential backoff: multiply by 2^retry_count
                                 backoff_seconds = min(
-                                    backoff_seconds * (RATE_LIMIT_BACKOFF_MULTIPLIER ** retry_count),
+                                    backoff_seconds * (RATE_LIMIT_BACKOFF_MULTIPLIER**retry_count),
                                     RATE_LIMIT_MAX_BACKOFF_SECONDS,
                                 )
                                 # Set global cooldown so other instances also back off
@@ -402,7 +421,7 @@ class FuelPricesAPI:
                 except asyncio.CancelledError:
                     _LOGGER.debug("Fuel Finder request cancelled: endpoint=%s params=%s", endpoint, params)
                     raise
-                except (ClientError, asyncio.TimeoutError) as err:
+                except (TimeoutError, ClientError) as err:
                     raise RuntimeError(f"GET {endpoint} failed: {err}") from err
 
                 if backoff_seconds is not None:
@@ -423,7 +442,7 @@ class FuelPricesAPI:
 
     async def _respect_rate_limit(self) -> None:
         """Enforce minimum interval between requests across all instances.
-        
+
         Must be called while holding _global_request_lock.
         """
         global _global_last_request_at
@@ -495,7 +514,7 @@ class FuelPricesAPI:
             cached = _global_token_cache.get(cache_key)
             if cached and not force_refresh:
                 cached_token, cached_expiry = cached
-                if datetime.now(timezone.utc) < cached_expiry:
+                if datetime.now(UTC) < cached_expiry:
                     self._access_token = cached_token
                     self._token_expiry = cached_expiry
                     _LOGGER.debug("Fuel Finder reusing cached token (expires %s)", cached_expiry.isoformat())
@@ -516,18 +535,20 @@ class FuelPricesAPI:
                     async with _global_request_lock:
                         await self._respect_rate_limit()
                         await self._respect_global_429_cooldown()
-                        async with self._session.post(token_url, json=payload, timeout=timeout, headers=headers) as response:
+                        async with self._session.post(
+                            token_url, json=payload, timeout=timeout, headers=headers
+                        ) as response:
                             response_payload = await _parse_json_response(response)
                             if response.status == 429:
                                 backoff = _extract_retry_after_seconds(response)
                                 backoff = min(
-                                    backoff * (RATE_LIMIT_BACKOFF_MULTIPLIER ** token_retry),
+                                    backoff * (RATE_LIMIT_BACKOFF_MULTIPLIER**token_retry),
                                     RATE_LIMIT_MAX_BACKOFF_SECONDS,
                                 )
                                 await self._set_global_429_cooldown(backoff)
                                 if token_retry >= MAX_429_RETRIES:
                                     raise RuntimeError(
-                                        f"Fuel Finder token request failed (429): rate limit exceeded after retries"
+                                        "Fuel Finder token request failed (429): rate limit exceeded after retries"
                                     )
                                 _LOGGER.warning(
                                     "Fuel Finder token endpoint returned 429; retrying in %.2fs (attempt %s/%s)",
@@ -538,13 +559,11 @@ class FuelPricesAPI:
                                 token_backoff = backoff
                             elif response.status >= 400:
                                 message = _extract_api_error(response_payload) or response.reason
-                                raise RuntimeError(
-                                    f"Fuel Finder token request failed ({response.status}): {message}"
-                                )
+                                raise RuntimeError(f"Fuel Finder token request failed ({response.status}): {message}")
                 except asyncio.CancelledError:
                     _LOGGER.debug("Fuel Finder token request cancelled")
                     raise
-                except (ClientError, asyncio.TimeoutError) as err:
+                except (TimeoutError, ClientError) as err:
                     raise RuntimeError(f"Fuel Finder token request failed: {err}") from err
 
                 if token_backoff is not None:
@@ -573,7 +592,7 @@ class FuelPricesAPI:
                 expiry_seconds = 3600
 
             self._access_token = token
-            self._token_expiry = datetime.now(timezone.utc) + timedelta(seconds=expiry_seconds - 60)
+            self._token_expiry = datetime.now(UTC) + timedelta(seconds=expiry_seconds - 60)
 
             # Store in shared cache so other instances with the same credentials
             # can reuse this token without hitting the endpoint again.
@@ -584,11 +603,7 @@ class FuelPricesAPI:
 
     @property
     def _token_is_valid(self) -> bool:
-        return bool(
-            self._access_token
-            and self._token_expiry
-            and datetime.now(timezone.utc) < self._token_expiry
-        )
+        return bool(self._access_token and self._token_expiry and datetime.now(UTC) < self._token_expiry)
 
     def _merge_station_info(self, rows: list[dict[str, Any]]) -> None:
         for row in rows:
@@ -720,9 +735,7 @@ class FuelPricesAPI:
             )
 
 
-async def async_validate_api_credentials(
-    hass: HomeAssistant, client_id: str, client_secret: str
-) -> bool:
+async def async_validate_api_credentials(hass: HomeAssistant, client_id: str, client_secret: str) -> bool:
     """Validate Fuel Finder OAuth credentials."""
     if not client_id or not client_secret:
         return False
@@ -750,7 +763,7 @@ def _parse_datetime(value: Any) -> str | None:
     if isinstance(value, (int, float)):
         # Interpret as UNIX timestamp seconds
         try:
-            dt = datetime.fromtimestamp(float(value), tz=timezone.utc)
+            dt = datetime.fromtimestamp(float(value), tz=UTC)
             return dt.isoformat()
         except (OSError, ValueError):
             return None
@@ -760,7 +773,7 @@ def _parse_datetime(value: Any) -> str | None:
             try:
                 dt = datetime.strptime(stripped, fmt)
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
+                    dt = dt.replace(tzinfo=UTC)
                 return dt.isoformat()
             except ValueError:
                 continue
@@ -783,10 +796,7 @@ def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def _extract_price(prices: dict[str, Any], fuel_type: str) -> float | None:
     price_entry = prices.get(fuel_type)
-    if isinstance(price_entry, dict):
-        value = price_entry.get("price") or price_entry.get("value")
-    else:
-        value = price_entry
+    value = price_entry.get("price") or price_entry.get("value") if isinstance(price_entry, dict) else price_entry
     try:
         if value is None:
             return None
@@ -872,8 +882,8 @@ def _extract_retry_after_seconds(response: Any) -> float:
     try:
         target_time = parsedate_to_datetime(retry_after_text)
         if target_time.tzinfo is None:
-            target_time = target_time.replace(tzinfo=timezone.utc)
-        delay = (target_time - datetime.now(timezone.utc)).total_seconds()
+            target_time = target_time.replace(tzinfo=UTC)
+        delay = (target_time - datetime.now(UTC)).total_seconds()
         return max(delay, 0.5)
     except (TypeError, ValueError, OverflowError):
         return DEFAULT_429_BACKOFF_SECONDS

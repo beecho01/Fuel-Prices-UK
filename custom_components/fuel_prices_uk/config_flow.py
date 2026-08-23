@@ -1,47 +1,45 @@
 """Config flow for Fuel Prices UK integration."""
-import logging
-import voluptuous as vol
 
+import logging
+
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult, OptionsFlowWithConfigEntry
-from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.selector import selector
-import homeassistant.helpers.config_validation as cv
 
+from .api_client import async_validate_api_credentials
 from .const import (
-    DOMAIN,
-    SCHEMA_VERSION,
+    CONF_ADDRESS,
+    CONF_CHEAPEST_COUNT,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_DEVICE_TRACKER,
-    CONF_MAX_DATA_AGE_DAYS,
-    CONF_NEAREST_COUNT,
-    CONF_UPDATE_INTERVAL,
-    CONF_STATIONS,
     CONF_FUELTYPES,
     CONF_LOCATION,
     CONF_LOCATION_METHOD,
-    CONF_ADDRESS,
+    CONF_MAX_DATA_AGE_DAYS,
+    CONF_NEAREST_COUNT,
     CONF_RADIUS,
     CONF_SEARCH_METHOD,
-    CONF_SITE_ID,
-    CONF_CHEAPEST_COUNT,
-    ENTRY_TITLE,
-    NAME,
-    FUEL_TYPES,
+    CONF_STATIONS,
+    CONF_UPDATE_INTERVAL,
+    DEFAULT_CHEAPEST_COUNT,
     DEFAULT_MAX_DATA_AGE_DAYS,
     DEFAULT_NEAREST_COUNT,
     DEFAULT_UPDATE_INTERVAL,
-    DEFAULT_CHEAPEST_COUNT,
-    MIN_CHEAPEST_COUNT,
+    DOMAIN,
+    ENTRY_TITLE,
+    FUEL_TYPES,
+    KM_TO_MILES,
     MAX_CHEAPEST_COUNT,
     MAX_NEAREST_COUNT,
     MILES_TO_KM,
-    KM_TO_MILES,
+    MIN_CHEAPEST_COUNT,
+    SCHEMA_VERSION,
 )
-from .api_client import async_validate_api_credentials
 from .location import get_lat_lon
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,7 +53,6 @@ LOCATION_METHOD_OPTIONS = {
 
 class SchemaCreationError(HomeAssistantError):
     """Error raised when the map schema cannot be produced."""
-
 
 
 def _build_map_schema(user_input=None, hass=None):
@@ -93,29 +90,24 @@ def main_config_schema(user_input=None, hass=None):
         "latitude": hass.config.latitude if hass and hass.config.latitude else 51.509865,
         "longitude": hass.config.longitude if hass and hass.config.longitude else -0.118092,
     }
-    
+
     # Get current radius in miles (stored value is in km, convert for display)
     radius_km = user_input.get(CONF_RADIUS, 5)  # This is in km internally
     radius_miles = round(radius_km * KM_TO_MILES, 1) if CONF_RADIUS in user_input else 3.0
-    
+
     return vol.Schema(
         {
             vol.Required(
                 CONF_UPDATE_INTERVAL,
                 default=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
             ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),  # 5 minutes to 24 hours
-            vol.Required(
-                CONF_RADIUS, 
-                default=radius_miles
-            ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),  # 0.5 to 31 miles (roughly 1-50 km)
+            vol.Required(CONF_RADIUS, default=radius_miles): vol.All(
+                vol.Coerce(float), vol.Range(min=0.5, max=31)
+            ),  # 0.5 to 31 miles (roughly 1-50 km)
             vol.Required(
                 CONF_LOCATION,
                 default=user_input.get(CONF_LOCATION, default_location),
-            ): selector({
-                "location": {
-                    "icon": "mdi:gas-station"
-                }
-            }),
+            ): selector({"location": {"icon": "mdi:gas-station"}}),
             vol.Required(
                 CONF_FUELTYPES,
                 default=user_input.get(CONF_FUELTYPES, ["E10", "B7"]),
@@ -162,9 +154,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
         name = str(import_data.get("name", "")).strip()
 
         if not client_id or not client_secret:
-            _LOGGER.error(
-                "[config_flow][step_import] Missing client_id or client_secret in YAML config"
-            )
+            _LOGGER.error("[config_flow][step_import] Missing client_id or client_secret in YAML config")
             return self.async_abort(reason="missing_credentials")
 
         # Unique ID: combine client_id with name so two locations that share
@@ -173,9 +163,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
 
-        credentials_valid = await async_validate_api_credentials(
-            self.hass, client_id, client_secret
-        )
+        credentials_valid = await async_validate_api_credentials(self.hass, client_id, client_secret)
         if not credentials_valid:
             _LOGGER.error(
                 "[config_flow][step_import] YAML credentials failed validation — check client_id/client_secret"
@@ -192,9 +180,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
 
         if postcode:
             lookup_text = postcode
-            resolved_lat, resolved_lon = await self.hass.async_add_executor_job(
-                get_lat_lon, lookup_text
-            )
+            resolved_lat, resolved_lon = await self.hass.async_add_executor_job(get_lat_lon, lookup_text)
             if resolved_lat is None or resolved_lon is None:
                 _LOGGER.error(
                     "[config_flow][step_import] Could not resolve postcode from YAML: %s",
@@ -205,9 +191,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
             location = {"latitude": resolved_lat, "longitude": resolved_lon}
             address = postcode
         elif freetext:
-            resolved_lat, resolved_lon = await self.hass.async_add_executor_job(
-                get_lat_lon, freetext
-            )
+            resolved_lat, resolved_lon = await self.hass.async_add_executor_job(get_lat_lon, freetext)
             if resolved_lat is None or resolved_lon is None:
                 _LOGGER.error(
                     "[config_flow][step_import] Could not geocode address from YAML: %s",
@@ -248,10 +232,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
 
         # --- Fuel types ---
         fuel_types_block = import_data.get("fuel_types") or {}
-        if fuel_types_block:
-            fuel_types = [ft for ft, enabled in fuel_types_block.items() if enabled]
-        else:
-            fuel_types = ["E10", "B7"]
+        fuel_types = [ft for ft, enabled in fuel_types_block.items() if enabled] if fuel_types_block else ["E10", "B7"]
 
         # --- Sensor counts ---
         count_block = import_data.get("count") or {}
@@ -265,12 +246,8 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
             )
 
         # --- Stale data filter ---
-        max_data_age_days = int(
-            import_data.get("ignore_stale_data_days", DEFAULT_MAX_DATA_AGE_DAYS)
-        )
-        update_interval = int(
-            import_data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
-        )
+        max_data_age_days = int(import_data.get("ignore_stale_data_days", DEFAULT_MAX_DATA_AGE_DAYS))
+        update_interval = int(import_data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL))
 
         if name:
             title = name
@@ -303,7 +280,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
         """Handle the initial step - credentials and location input method."""
         _LOGGER.debug("[config_flow][step_user] Started - choosing location method")
         self._errors = {}
-        
+
         if user_input is not None:
             client_id = str(user_input.get(CONF_CLIENT_ID, "")).strip()
             client_secret = str(user_input.get(CONF_CLIENT_SECRET, "")).strip()
@@ -322,17 +299,19 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
             if self._errors:
                 return self.async_show_form(
                     step_id="user",
-                    data_schema=vol.Schema({
-                        vol.Required(
-                            CONF_SEARCH_METHOD,
-                            default=user_input.get(CONF_SEARCH_METHOD, "map"),
-                        ): vol.In(LOCATION_METHOD_OPTIONS),
-                        vol.Required(
-                            CONF_CLIENT_ID,
-                            default=user_input.get(CONF_CLIENT_ID, ""),
-                        ): cv.string,
-                        vol.Required(CONF_CLIENT_SECRET): selector({"text": {"type": "password"}}),
-                    }),
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(
+                                CONF_SEARCH_METHOD,
+                                default=user_input.get(CONF_SEARCH_METHOD, "map"),
+                            ): vol.In(LOCATION_METHOD_OPTIONS),
+                            vol.Required(
+                                CONF_CLIENT_ID,
+                                default=user_input.get(CONF_CLIENT_ID, ""),
+                            ): cv.string,
+                            vol.Required(CONF_CLIENT_SECRET): selector({"text": {"type": "password"}}),
+                        }
+                    ),
                     errors=self._errors,
                     description_placeholders={
                         "info": "Choose how you want to specify your location and provide your Fuel Finder API credentials.",
@@ -343,21 +322,23 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
             self._data[CONF_CLIENT_SECRET] = client_secret
             self._location_method = user_input[CONF_SEARCH_METHOD]
             _LOGGER.debug("[config_flow][step_user] Selected method: %s", self._location_method)
-            
+
             if self._location_method == "map":
                 return await self.async_step_location_map()
             elif self._location_method == "device_tracker":
                 return await self.async_step_location_device_tracker()
             else:
                 return await self.async_step_location_address()
-        
+
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Required(CONF_SEARCH_METHOD, default="map"): vol.In(LOCATION_METHOD_OPTIONS),
-                vol.Required(CONF_CLIENT_ID): cv.string,
-                vol.Required(CONF_CLIENT_SECRET): selector({"text": {"type": "password"}}),
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SEARCH_METHOD, default="map"): vol.In(LOCATION_METHOD_OPTIONS),
+                    vol.Required(CONF_CLIENT_ID): cv.string,
+                    vol.Required(CONF_CLIENT_SECRET): selector({"text": {"type": "password"}}),
+                }
+            ),
             description_placeholders={
                 "info": "Choose how you want to specify your location and provide your Fuel Finder API credentials."
             },
@@ -381,10 +362,10 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
             # Validate inputs
             if user_input[CONF_UPDATE_INTERVAL] < 300:
                 raise InvalidUpdateInterval("Update interval must be at least 5 minutes")
-            
+
             if user_input[CONF_RADIUS] <= 0:
                 raise InvalidRadius("Radius must be greater than 0")
-            
+
             if not user_input.get(CONF_FUELTYPES):
                 raise NoFuelTypeSelected("At least one fuel type must be selected")
 
@@ -431,9 +412,8 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
             }
 
             # Create a descriptive title (show in miles)
-            location = user_input[CONF_LOCATION]
             title = f"{ENTRY_TITLE} - {radius_miles}mi radius"
-            
+
             return self.async_create_entry(title=title, data=self._data)
 
         except InvalidUpdateInterval:
@@ -468,36 +448,37 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
         if user_input is None:
             # Get default radius (3 miles)
             default_radius = 3.0
-            
+
             return self.async_show_form(
                 step_id="location_address",
-                data_schema=vol.Schema({
-                    vol.Required(
-                        CONF_UPDATE_INTERVAL,
-                        default=DEFAULT_UPDATE_INTERVAL,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
-                    vol.Required(
-                        CONF_RADIUS,
-                        default=default_radius
-                    ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
-                    vol.Required(CONF_ADDRESS): cv.string,
-                    vol.Required(
-                        CONF_FUELTYPES,
-                        default=["E10", "B7"],
-                    ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
-                    vol.Required(
-                        CONF_CHEAPEST_COUNT,
-                        default=DEFAULT_CHEAPEST_COUNT,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
-                    vol.Optional(
-                        CONF_NEAREST_COUNT,
-                        default=DEFAULT_NEAREST_COUNT,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                    vol.Optional(
-                        CONF_MAX_DATA_AGE_DAYS,
-                        default=DEFAULT_MAX_DATA_AGE_DAYS,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
-                }),
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(
+                            CONF_UPDATE_INTERVAL,
+                            default=DEFAULT_UPDATE_INTERVAL,
+                        ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                        vol.Required(CONF_RADIUS, default=default_radius): vol.All(
+                            vol.Coerce(float), vol.Range(min=0.5, max=31)
+                        ),
+                        vol.Required(CONF_ADDRESS): cv.string,
+                        vol.Required(
+                            CONF_FUELTYPES,
+                            default=["E10", "B7"],
+                        ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                        vol.Required(
+                            CONF_CHEAPEST_COUNT,
+                            default=DEFAULT_CHEAPEST_COUNT,
+                        ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
+                        vol.Optional(
+                            CONF_NEAREST_COUNT,
+                            default=DEFAULT_NEAREST_COUNT,
+                        ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
+                        vol.Optional(
+                            CONF_MAX_DATA_AGE_DAYS,
+                            default=DEFAULT_MAX_DATA_AGE_DAYS,
+                        ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
+                    }
+                ),
                 description_placeholders={
                     "info": "Enter a UK postcode, address, or location name. We'll find the coordinates for you."
                 },
@@ -507,10 +488,10 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
             # Validate inputs
             if user_input[CONF_UPDATE_INTERVAL] < 300:
                 raise InvalidUpdateInterval("Update interval must be at least 5 minutes")
-            
+
             if user_input[CONF_RADIUS] <= 0:
                 raise InvalidRadius("Radius must be greater than 0")
-            
+
             if not user_input.get(CONF_FUELTYPES):
                 raise NoFuelTypeSelected("At least one fuel type must be selected")
 
@@ -522,13 +503,13 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
             # Convert address/postcode to coordinates
             address = user_input[CONF_ADDRESS]
             _LOGGER.debug("[config_flow][step_location_address] Looking up: %s", address)
-            
+
             lat, lon = await self.hass.async_add_executor_job(get_lat_lon, address)
-            
+
             if lat is None or lon is None:
                 _LOGGER.warning("[config_flow][step_location_address] Could not find location for: %s", address)
                 raise InvalidAddress("Could not find location. Please check your postcode/address and try again.")
-            
+
             _LOGGER.info("[config_flow][step_location_address] Found coordinates: %s, %s for '%s'", lat, lon, address)
 
             # Convert radius from miles to km for storage
@@ -556,7 +537,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
 
             # Create a descriptive title (show in miles and address)
             title = f"{ENTRY_TITLE} - {address[:20]} - {radius_miles}mi"
-            
+
             return self.async_create_entry(title=title, data=self._data)
 
         except InvalidUpdateInterval:
@@ -575,33 +556,34 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
 
         return self.async_show_form(
             step_id="location_address",
-            data_schema=vol.Schema({
-                vol.Required(
-                    CONF_UPDATE_INTERVAL,
-                    default=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
-                ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
-                vol.Required(
-                    CONF_RADIUS,
-                    default=user_input.get(CONF_RADIUS, 3.0)
-                ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
-                vol.Required(CONF_ADDRESS, default=user_input.get(CONF_ADDRESS, "")): cv.string,
-                vol.Required(
-                    CONF_FUELTYPES,
-                    default=user_input.get(CONF_FUELTYPES, ["E10", "B7"]),
-                ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
-                vol.Required(
-                    CONF_CHEAPEST_COUNT,
-                    default=user_input.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT),
-                ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
-                vol.Required(
-                    CONF_NEAREST_COUNT,
-                    default=user_input.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                vol.Optional(
-                    CONF_MAX_DATA_AGE_DAYS,
-                    default=user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL,
+                        default=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                    vol.Required(CONF_RADIUS, default=user_input.get(CONF_RADIUS, 3.0)): vol.All(
+                        vol.Coerce(float), vol.Range(min=0.5, max=31)
+                    ),
+                    vol.Required(CONF_ADDRESS, default=user_input.get(CONF_ADDRESS, "")): cv.string,
+                    vol.Required(
+                        CONF_FUELTYPES,
+                        default=user_input.get(CONF_FUELTYPES, ["E10", "B7"]),
+                    ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                    vol.Required(
+                        CONF_CHEAPEST_COUNT,
+                        default=user_input.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
+                    vol.Required(
+                        CONF_NEAREST_COUNT,
+                        default=user_input.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
+                    vol.Optional(
+                        CONF_MAX_DATA_AGE_DAYS,
+                        default=user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
+                }
+            ),
             errors=self._errors,
         )
 
@@ -613,35 +595,37 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
         if user_input is None:
             return self.async_show_form(
                 step_id="location_device_tracker",
-                data_schema=vol.Schema({
-                    vol.Required(
-                        CONF_DEVICE_TRACKER,
-                    ): selector({"entity": {"domain": "device_tracker"}}),
-                    vol.Required(
-                        CONF_UPDATE_INTERVAL,
-                        default=DEFAULT_UPDATE_INTERVAL,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
-                    vol.Required(
-                        CONF_RADIUS,
-                        default=3.0,
-                    ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
-                    vol.Required(
-                        CONF_FUELTYPES,
-                        default=["E10", "B7"],
-                    ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
-                    vol.Required(
-                        CONF_CHEAPEST_COUNT,
-                        default=DEFAULT_CHEAPEST_COUNT,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
-                    vol.Required(
-                        CONF_NEAREST_COUNT,
-                        default=DEFAULT_NEAREST_COUNT,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                    vol.Optional(
-                        CONF_MAX_DATA_AGE_DAYS,
-                        default=DEFAULT_MAX_DATA_AGE_DAYS,
-                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
-                }),
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(
+                            CONF_DEVICE_TRACKER,
+                        ): selector({"entity": {"domain": "device_tracker"}}),
+                        vol.Required(
+                            CONF_UPDATE_INTERVAL,
+                            default=DEFAULT_UPDATE_INTERVAL,
+                        ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                        vol.Required(
+                            CONF_RADIUS,
+                            default=3.0,
+                        ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
+                        vol.Required(
+                            CONF_FUELTYPES,
+                            default=["E10", "B7"],
+                        ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                        vol.Required(
+                            CONF_CHEAPEST_COUNT,
+                            default=DEFAULT_CHEAPEST_COUNT,
+                        ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
+                        vol.Required(
+                            CONF_NEAREST_COUNT,
+                            default=DEFAULT_NEAREST_COUNT,
+                        ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
+                        vol.Optional(
+                            CONF_MAX_DATA_AGE_DAYS,
+                            default=DEFAULT_MAX_DATA_AGE_DAYS,
+                        ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
+                    }
+                ),
             )
 
         tracker_entity_id = user_input.get(CONF_DEVICE_TRACKER, "")
@@ -659,15 +643,32 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
         if self._errors:
             return self.async_show_form(
                 step_id="location_device_tracker",
-                data_schema=vol.Schema({
-                    vol.Required(CONF_DEVICE_TRACKER, default=tracker_entity_id): selector({"entity": {"domain": "device_tracker"}}),
-                    vol.Required(CONF_UPDATE_INTERVAL, default=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
-                    vol.Required(CONF_RADIUS, default=user_input.get(CONF_RADIUS, 3.0)): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
-                    vol.Required(CONF_FUELTYPES, default=user_input.get(CONF_FUELTYPES, ["E10", "B7"])): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
-                    vol.Required(CONF_CHEAPEST_COUNT, default=user_input.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT)): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
-                    vol.Required(CONF_NEAREST_COUNT, default=user_input.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT)): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                    vol.Optional(CONF_MAX_DATA_AGE_DAYS, default=user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS)): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
-                }),
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_DEVICE_TRACKER, default=tracker_entity_id): selector(
+                            {"entity": {"domain": "device_tracker"}}
+                        ),
+                        vol.Required(
+                            CONF_UPDATE_INTERVAL, default=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+                        ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                        vol.Required(CONF_RADIUS, default=user_input.get(CONF_RADIUS, 3.0)): vol.All(
+                            vol.Coerce(float), vol.Range(min=0.5, max=31)
+                        ),
+                        vol.Required(
+                            CONF_FUELTYPES, default=user_input.get(CONF_FUELTYPES, ["E10", "B7"])
+                        ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                        vol.Required(
+                            CONF_CHEAPEST_COUNT, default=user_input.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT)
+                        ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
+                        vol.Required(
+                            CONF_NEAREST_COUNT, default=user_input.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT)
+                        ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
+                        vol.Optional(
+                            CONF_MAX_DATA_AGE_DAYS,
+                            default=user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
+                        ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
+                    }
+                ),
                 errors=self._errors,
             )
 
@@ -715,7 +716,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
         merged_init = dict(self.config_entry.data)
         merged_init.update(self.config_entry.options)
         current_method = merged_init.get(CONF_LOCATION_METHOD, "map")
-        
+
         if user_input is not None:
             self._errors = {}
 
@@ -730,10 +731,9 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
             if not self._resolved_client_id or not self._resolved_client_secret:
                 self._errors["base"] = "invalid_api_credentials"
             else:
-                credentials_changed = (
-                    self._resolved_client_id != str(self.config_entry.data.get(CONF_CLIENT_ID, "")).strip()
-                    or bool(proposed_client_secret)
-                )
+                credentials_changed = self._resolved_client_id != str(
+                    self.config_entry.data.get(CONF_CLIENT_ID, "")
+                ).strip() or bool(proposed_client_secret)
                 if credentials_changed:
                     credentials_valid = await async_validate_api_credentials(
                         self.hass,
@@ -746,17 +746,19 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
             if self._errors:
                 return self.async_show_form(
                     step_id="init",
-                    data_schema=vol.Schema({
-                        vol.Required(
-                            CONF_SEARCH_METHOD,
-                            default=user_input.get(CONF_SEARCH_METHOD, current_method),
-                        ): vol.In(LOCATION_METHOD_OPTIONS),
-                        vol.Required(
-                            CONF_CLIENT_ID,
-                            default=user_input.get(CONF_CLIENT_ID, self._resolved_client_id),
-                        ): cv.string,
-                        vol.Optional(CONF_CLIENT_SECRET, default=""): selector({"text": {"type": "password"}}),
-                    }),
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(
+                                CONF_SEARCH_METHOD,
+                                default=user_input.get(CONF_SEARCH_METHOD, current_method),
+                            ): vol.In(LOCATION_METHOD_OPTIONS),
+                            vol.Required(
+                                CONF_CLIENT_ID,
+                                default=user_input.get(CONF_CLIENT_ID, self._resolved_client_id),
+                            ): cv.string,
+                            vol.Optional(CONF_CLIENT_SECRET, default=""): selector({"text": {"type": "password"}}),
+                        }
+                    ),
                     errors=self._errors,
                     description_placeholders={
                         "info": "Choose how you want to update your location and optionally rotate your Fuel Finder API credentials.",
@@ -769,17 +771,19 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                 return await self.async_step_location_device_tracker()
             else:
                 return await self.async_step_location_address()
-        
+
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({
-                vol.Required(CONF_SEARCH_METHOD, default=current_method): vol.In(LOCATION_METHOD_OPTIONS),
-                vol.Required(
-                    CONF_CLIENT_ID,
-                    default=self._resolved_client_id,
-                ): cv.string,
-                vol.Optional(CONF_CLIENT_SECRET, default=""): selector({"text": {"type": "password"}}),
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SEARCH_METHOD, default=current_method): vol.In(LOCATION_METHOD_OPTIONS),
+                    vol.Required(
+                        CONF_CLIENT_ID,
+                        default=self._resolved_client_id,
+                    ): cv.string,
+                    vol.Optional(CONF_CLIENT_SECRET, default=""): selector({"text": {"type": "password"}}),
+                }
+            ),
             description_placeholders={
                 "info": "Choose how you want to update your location and optionally rotate your Fuel Finder API credentials."
             },
@@ -822,13 +826,29 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                         step_id="location_map",
                         data_schema=vol.Schema(
                             {
-                                vol.Required(CONF_UPDATE_INTERVAL, default=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
-                                vol.Required(CONF_RADIUS, default=user_input.get(CONF_RADIUS, 3.0)): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
-                                vol.Required(CONF_LOCATION, default=user_input.get(CONF_LOCATION)): selector({"location": {"icon": "mdi:gas-station"}}),
-                                vol.Required(CONF_FUELTYPES, default=user_input.get(CONF_FUELTYPES, ["E10", "B7"])): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
-                                vol.Required(CONF_CHEAPEST_COUNT, default=cheapest_count): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
-                                vol.Required(CONF_NEAREST_COUNT, default=nearest_count): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                                vol.Optional(CONF_MAX_DATA_AGE_DAYS, default=user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS)): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
+                                vol.Required(
+                                    CONF_UPDATE_INTERVAL,
+                                    default=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                                ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                                vol.Required(CONF_RADIUS, default=user_input.get(CONF_RADIUS, 3.0)): vol.All(
+                                    vol.Coerce(float), vol.Range(min=0.5, max=31)
+                                ),
+                                vol.Required(CONF_LOCATION, default=user_input.get(CONF_LOCATION)): selector(
+                                    {"location": {"icon": "mdi:gas-station"}}
+                                ),
+                                vol.Required(
+                                    CONF_FUELTYPES, default=user_input.get(CONF_FUELTYPES, ["E10", "B7"])
+                                ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                                vol.Required(CONF_CHEAPEST_COUNT, default=cheapest_count): vol.All(
+                                    vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)
+                                ),
+                                vol.Required(CONF_NEAREST_COUNT, default=nearest_count): vol.All(
+                                    vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)
+                                ),
+                                vol.Optional(
+                                    CONF_MAX_DATA_AGE_DAYS,
+                                    default=user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
+                                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
                             }
                         ),
                         errors=self._errors,
@@ -843,7 +863,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                     del updated_data[CONF_ADDRESS]
 
                 return self.async_create_entry(title="", data=updated_data)
-        
+
         # Get current radius in miles (stored in km, convert for display)
         # Use merged config so options-flow values are shown, not stale entry.data
         merged = dict(self.config_entry.data)
@@ -866,11 +886,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                     vol.Required(
                         CONF_LOCATION,
                         default=merged.get(CONF_LOCATION),
-                    ): selector({
-                        "location": {
-                            "icon": "mdi:gas-station"
-                        }
-                    }),
+                    ): selector({"location": {"icon": "mdi:gas-station"}}),
                     vol.Required(
                         CONF_FUELTYPES,
                         default=merged.get(CONF_FUELTYPES, ["E10", "B7"]),
@@ -895,16 +911,16 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
     async def async_step_location_address(self, user_input=None) -> ConfigFlowResult:
         """Handle address/postcode-based location options."""
         self._errors = {}
-        
+
         if user_input is not None:
             try:
                 # Validate inputs
                 if user_input[CONF_UPDATE_INTERVAL] < 300:
                     raise InvalidUpdateInterval("Update interval must be at least 5 minutes")
-                
+
                 if user_input[CONF_RADIUS] <= 0:
                     raise InvalidRadius("Radius must be greater than 0")
-                
+
                 if not user_input.get(CONF_FUELTYPES):
                     raise NoFuelTypeSelected("At least one fuel type must be selected")
 
@@ -916,14 +932,16 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                 # Convert address/postcode to coordinates
                 address = user_input[CONF_ADDRESS]
                 _LOGGER.debug("[options_flow][step_location_address] Looking up: %s", address)
-                
+
                 lat, lon = await self.hass.async_add_executor_job(get_lat_lon, address)
-                
+
                 if lat is None or lon is None:
                     _LOGGER.warning("[options_flow][step_location_address] Could not find location for: %s", address)
                     raise InvalidAddress("Could not find location. Please check your postcode/address and try again.")
-                
-                _LOGGER.info("[options_flow][step_location_address] Found coordinates: %s, %s for '%s'", lat, lon, address)
+
+                _LOGGER.info(
+                    "[options_flow][step_location_address] Found coordinates: %s, %s for '%s'", lat, lon, address
+                )
 
                 # Convert radius from miles to km for storage
                 radius_miles = user_input[CONF_RADIUS]
@@ -945,7 +963,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                 updated_data[CONF_CHEAPEST_COUNT] = cheapest_count
                 updated_data[CONF_NEAREST_COUNT] = nearest_count
                 updated_data[CONF_MAX_DATA_AGE_DAYS] = user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS)
-                
+
                 return self.async_create_entry(title="", data=updated_data)
 
             except InvalidUpdateInterval:
@@ -965,7 +983,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                     user_input,
                 )
                 self._errors["base"] = "unknown"
-        
+
         # Get current values using merged config
         merged = dict(self.config_entry.data)
         merged.update(self.config_entry.options)
@@ -975,36 +993,55 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
 
         return self.async_show_form(
             step_id="location_address",
-            data_schema=vol.Schema({
-                vol.Required(
-                    CONF_UPDATE_INTERVAL,
-                    default=user_input.get(CONF_UPDATE_INTERVAL, merged.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)) if user_input else merged.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
-                ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
-                vol.Required(
-                    CONF_RADIUS,
-                    default=user_input.get(CONF_RADIUS, radius_miles) if user_input else radius_miles
-                ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
-                vol.Required(
-                    CONF_ADDRESS,
-                    default=user_input.get(CONF_ADDRESS, current_address) if user_input else current_address
-                ): cv.string,
-                vol.Required(
-                    CONF_FUELTYPES,
-                    default=user_input.get(CONF_FUELTYPES, merged.get(CONF_FUELTYPES, ["E10", "B7"])) if user_input else merged.get(CONF_FUELTYPES, ["E10", "B7"]),
-                ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
-                vol.Required(
-                    CONF_CHEAPEST_COUNT,
-                    default=user_input.get(CONF_CHEAPEST_COUNT, merged.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT)) if user_input else merged.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT),
-                ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
-                vol.Required(
-                    CONF_NEAREST_COUNT,
-                    default=user_input.get(CONF_NEAREST_COUNT, merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT)) if user_input else merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                vol.Optional(
-                    CONF_MAX_DATA_AGE_DAYS,
-                    default=user_input.get(CONF_MAX_DATA_AGE_DAYS, merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS)) if user_input else merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL,
+                        default=user_input.get(
+                            CONF_UPDATE_INTERVAL, merged.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+                        )
+                        if user_input
+                        else merged.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                    vol.Required(
+                        CONF_RADIUS, default=user_input.get(CONF_RADIUS, radius_miles) if user_input else radius_miles
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
+                    vol.Required(
+                        CONF_ADDRESS,
+                        default=user_input.get(CONF_ADDRESS, current_address) if user_input else current_address,
+                    ): cv.string,
+                    vol.Required(
+                        CONF_FUELTYPES,
+                        default=user_input.get(CONF_FUELTYPES, merged.get(CONF_FUELTYPES, ["E10", "B7"]))
+                        if user_input
+                        else merged.get(CONF_FUELTYPES, ["E10", "B7"]),
+                    ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                    vol.Required(
+                        CONF_CHEAPEST_COUNT,
+                        default=user_input.get(
+                            CONF_CHEAPEST_COUNT, merged.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT)
+                        )
+                        if user_input
+                        else merged.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
+                    vol.Required(
+                        CONF_NEAREST_COUNT,
+                        default=user_input.get(
+                            CONF_NEAREST_COUNT, merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT)
+                        )
+                        if user_input
+                        else merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
+                    vol.Optional(
+                        CONF_MAX_DATA_AGE_DAYS,
+                        default=user_input.get(
+                            CONF_MAX_DATA_AGE_DAYS, merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS)
+                        )
+                        if user_input
+                        else merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
+                }
+            ),
             errors=self._errors,
         )
 
@@ -1053,15 +1090,58 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
 
         return self.async_show_form(
             step_id="location_device_tracker",
-            data_schema=vol.Schema({
-                vol.Required(CONF_DEVICE_TRACKER, default=user_input.get(CONF_DEVICE_TRACKER, current_tracker) if user_input else current_tracker): selector({"entity": {"domain": "device_tracker"}}),
-                vol.Required(CONF_UPDATE_INTERVAL, default=user_input.get(CONF_UPDATE_INTERVAL, merged.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)) if user_input else merged.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
-                vol.Required(CONF_RADIUS, default=user_input.get(CONF_RADIUS, current_radius_miles) if user_input else current_radius_miles): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
-                vol.Required(CONF_FUELTYPES, default=user_input.get(CONF_FUELTYPES, merged.get(CONF_FUELTYPES, ["E10", "B7"])) if user_input else merged.get(CONF_FUELTYPES, ["E10", "B7"])): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
-                vol.Required(CONF_CHEAPEST_COUNT, default=user_input.get(CONF_CHEAPEST_COUNT, merged.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT)) if user_input else merged.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT)): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
-                vol.Required(CONF_NEAREST_COUNT, default=user_input.get(CONF_NEAREST_COUNT, merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT)) if user_input else merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT)): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                vol.Optional(CONF_MAX_DATA_AGE_DAYS, default=user_input.get(CONF_MAX_DATA_AGE_DAYS, merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS)) if user_input else merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS)): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_DEVICE_TRACKER,
+                        default=user_input.get(CONF_DEVICE_TRACKER, current_tracker) if user_input else current_tracker,
+                    ): selector({"entity": {"domain": "device_tracker"}}),
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL,
+                        default=user_input.get(
+                            CONF_UPDATE_INTERVAL, merged.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+                        )
+                        if user_input
+                        else merged.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=300, max=86400)),
+                    vol.Required(
+                        CONF_RADIUS,
+                        default=user_input.get(CONF_RADIUS, current_radius_miles)
+                        if user_input
+                        else current_radius_miles,
+                    ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=31)),
+                    vol.Required(
+                        CONF_FUELTYPES,
+                        default=user_input.get(CONF_FUELTYPES, merged.get(CONF_FUELTYPES, ["E10", "B7"]))
+                        if user_input
+                        else merged.get(CONF_FUELTYPES, ["E10", "B7"]),
+                    ): cv.multi_select({ft["value"]: ft["label"] for ft in FUEL_TYPES}),
+                    vol.Required(
+                        CONF_CHEAPEST_COUNT,
+                        default=user_input.get(
+                            CONF_CHEAPEST_COUNT, merged.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT)
+                        )
+                        if user_input
+                        else merged.get(CONF_CHEAPEST_COUNT, DEFAULT_CHEAPEST_COUNT),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
+                    vol.Required(
+                        CONF_NEAREST_COUNT,
+                        default=user_input.get(
+                            CONF_NEAREST_COUNT, merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT)
+                        )
+                        if user_input
+                        else merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
+                    vol.Optional(
+                        CONF_MAX_DATA_AGE_DAYS,
+                        default=user_input.get(
+                            CONF_MAX_DATA_AGE_DAYS, merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS)
+                        )
+                        if user_input
+                        else merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
+                }
+            ),
             errors=self._errors,
         )
 

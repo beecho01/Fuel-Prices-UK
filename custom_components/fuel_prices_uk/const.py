@@ -42,6 +42,10 @@ DEFAULT_NEAREST_COUNT = 0  # 0 = disabled
 MAX_NEAREST_COUNT = 5
 DEFAULT_MAX_DATA_AGE_DAYS = 0  # 0 = no limit
 
+# Number of consecutive failed refresh cycles before a persistent Repair is
+# raised (Settings -> Repairs) so stale data doesn't fail silently.
+CONSECUTIVE_FAILURE_THRESHOLD = 3
+
 # Supported fuel types based on UK government data
 FUEL_TYPE_E10 = "E10"
 FUEL_TYPE_E5 = "E5"

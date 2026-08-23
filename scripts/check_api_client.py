@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Quick manual verification script for the Fuel Prices API client."""
+
 from __future__ import annotations
 
-import asyncio
 import argparse
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -15,7 +16,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from custom_components.fuel_prices_uk.api_client import FuelPricesAPI  # noqa: E402
-
 
 if sys.platform.startswith("win") and isinstance(
     asyncio.get_event_loop_policy(), asyncio.WindowsProactorEventLoopPolicy
