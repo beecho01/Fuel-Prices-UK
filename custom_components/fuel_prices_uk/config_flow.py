@@ -50,6 +50,12 @@ LOCATION_METHOD_OPTIONS = {
     "device_tracker": "Use a device tracker entity",
 }
 
+# hassfest forbids raw URLs in translation strings (they can't be reviewed
+# per-language and can't be updated without a full translation pass), so
+# this is passed as a description_placeholders value instead of being
+# embedded in strings.json/translations/en.json directly.
+DOCS_URL_PLACEHOLDER = "[Fuel Finder Developer Portal](https://www.developer.fuel-finder.service.gov.uk/public-api)"
+
 
 class SchemaCreationError(HomeAssistantError):
     """Error raised when the map schema cannot be produced."""
@@ -315,6 +321,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
                     errors=self._errors,
                     description_placeholders={
                         "info": "Choose how you want to specify your location and provide your Fuel Finder API credentials.",
+                        "docs_url": DOCS_URL_PLACEHOLDER,
                     },
                 )
 
@@ -340,7 +347,8 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
                 }
             ),
             description_placeholders={
-                "info": "Choose how you want to specify your location and provide your Fuel Finder API credentials."
+                "info": "Choose how you want to specify your location and provide your Fuel Finder API credentials.",
+                "docs_url": DOCS_URL_PLACEHOLDER,
             },
         )
 
@@ -762,6 +770,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                     errors=self._errors,
                     description_placeholders={
                         "info": "Choose how you want to update your location and optionally rotate your Fuel Finder API credentials.",
+                        "docs_url": DOCS_URL_PLACEHOLDER,
                     },
                 )
 
@@ -785,7 +794,8 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                 }
             ),
             description_placeholders={
-                "info": "Choose how you want to update your location and optionally rotate your Fuel Finder API credentials."
+                "info": "Choose how you want to update your location and optionally rotate your Fuel Finder API credentials.",
+                "docs_url": DOCS_URL_PLACEHOLDER,
             },
             errors=self._errors,
         )

@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Fuel Finder API and Search Setup",
-        "description": "Choose how to set your search location and enter your Fuel Finder API credentials. You can create your Client ID and Client Secret via the UK Government Fuel Finder guidance: https://www.developer.fuel-finder.service.gov.uk/public-api",
+        "description": "Choose how to set your search location and enter your Fuel Finder API credentials. You can create your Client ID and Client Secret via the {docs_url}.",
         "data": {
           "search_method": "How would you like to set your search area?",
           "client_id": "Fuel Finder API Client ID",
@@ -115,7 +115,7 @@
     "step": {
       "init": {
         "title": "Update Search Method and API Credentials",
-        "description": "Choose how to update your search location and optionally rotate your Fuel Finder API credentials. You can create or manage credentials via: https://www.gov.uk/guidance/access-fuel-price-data",
+        "description": "Choose how to update your search location and optionally rotate your Fuel Finder API credentials. You can create or manage credentials via {docs_url}.",
         "data": {
           "search_method": "How would you like to set your search area?",
           "client_id": "Fuel Finder API Client ID",
