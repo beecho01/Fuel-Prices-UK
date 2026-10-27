@@ -10,6 +10,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult
 from homeassistant.data_entry_flow import FlowResultType
 
@@ -23,6 +25,7 @@ from custom_components.fuel_prices_uk.const import (
     CONF_FUELTYPES,
     CONF_LOCATION,
     CONF_LOCATION_METHOD,
+    CONF_MAX_DATA_AGE_DAYS,
     CONF_NEAREST_COUNT,
     CONF_RADIUS,
     CONF_UPDATE_INTERVAL,
@@ -144,3 +147,31 @@ async def test_map_step_requires_at_least_one_sensor_type() -> None:
     result = await _flow(_address_entry()).async_step_location_map(user_input)
 
     assert _form_errors(result) == {"base": "neither_option_enabled"}
+
+
+@pytest.mark.parametrize("step", ["location_map", "location_address", "location_device_tracker"])
+async def test_max_data_age_is_required_and_prefilled(step: str) -> None:
+    entry = with_options(_address_entry(), {CONF_MAX_DATA_AGE_DAYS: 7})
+
+    result = await getattr(_flow(entry), f"async_step_{step}")(None)
+
+    # An Optional field gets a checkbox in the HA frontend; unticking it drops
+    # the key and voluptuous refills the default (the saved value), so the
+    # change is silently lost. Required renders no checkbox.
+    schema = result["data_schema"].schema
+    (key,) = (k for k in schema if k == CONF_MAX_DATA_AGE_DAYS)
+    assert isinstance(key, vol.Required)
+    assert key.default() == 7
+
+
+async def test_max_data_age_can_be_set_back_to_zero() -> None:
+    entry = with_options(_address_entry(), {CONF_MAX_DATA_AGE_DAYS: 7})
+    user_input = {
+        **_common_input(),
+        CONF_LOCATION: {"latitude": 52.2, "longitude": -1.5},
+        CONF_MAX_DATA_AGE_DAYS: 0,
+    }
+
+    options = _saved_options(await _flow(entry).async_step_location_map(user_input))
+
+    assert options[CONF_MAX_DATA_AGE_DAYS] == 0
