@@ -221,7 +221,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Register update listener to reload on options change
     entry.async_on_unload(entry.add_update_listener(update_listener))
 
-    # Perform first refresh in the background so setup is not blocked by slow API paging.
+    # Perform first refresh in the background so neither setup nor Home Assistant
+    # startup is blocked by slow API paging (issue #20).
     # No per-entry stagger is needed: entries sharing credentials share one client
     # (the second waits on its lock and reuses the fetch), and the module-level
     # request lock already serialises every request to the API.
@@ -300,11 +301,18 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
         )
 
     def start_startup_refresh(self) -> None:
-        """Kick off one startup refresh without blocking config entry setup."""
+        """Kick off one startup refresh without blocking config entry setup or HA startup.
+
+        This must be a background task: Home Assistant waits (up to 5 minutes)
+        for ordinary tasks before it finishes starting, and the first fetch,
+        plus its delayed retry, can take minutes. Tying it to the entry also
+        cancels it when the entry is unloaded.
+        """
         if self._startup_refresh_task and not self._startup_refresh_task.done():
             return
 
-        self._startup_refresh_task = self.hass.async_create_task(
+        self._startup_refresh_task = self.entry.async_create_background_task(
+            self.hass,
             self._async_run_startup_refresh(),
             name=f"{DOMAIN}_{self.entry.entry_id}_startup_refresh",
         )
