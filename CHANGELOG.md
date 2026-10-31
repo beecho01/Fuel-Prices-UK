@@ -4,7 +4,7 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions use the
 `YYYY.MM.DD` scheme HACS integrations conventionally use.
 
-## [Unreleased]
+## [2026.10.31] - 2026-10-31
 
 ### Added
 
