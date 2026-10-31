@@ -125,6 +125,25 @@ async def test_switching_to_device_tracker_blanks_the_old_address() -> None:
     assert label.startswith(f"{entry.title} · ")
 
 
+async def test_location_entity_can_be_a_tracker_person_or_zone() -> None:
+    result = await _flow(_address_entry()).async_step_location_device_tracker(None)
+
+    schema = result["data_schema"].schema
+    (entity_selector,) = (value for key, value in schema.items() if key == CONF_DEVICE_TRACKER)
+    assert entity_selector.config["domain"] == ["device_tracker", "person", "zone"]
+
+
+async def test_zone_is_accepted_as_the_location_entity() -> None:
+    flow = _flow(_address_entry())
+    flow.hass.states.get.return_value = SimpleNamespace(state="0", attributes={"latitude": 51.9, "longitude": -0.4})
+    user_input = {**_common_input(), CONF_DEVICE_TRACKER: "zone.work"}
+
+    options = _saved_options(await flow.async_step_location_device_tracker(user_input))
+
+    assert options[CONF_LOCATION_METHOD] == "device_tracker"
+    assert options[CONF_DEVICE_TRACKER] == "zone.work"
+
+
 async def test_map_step_rejects_missing_coordinates() -> None:
     user_input = {**_common_input(), CONF_LOCATION: {"latitude": None, "longitude": None}}
 

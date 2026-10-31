@@ -1,6 +1,6 @@
 # Location Input Methods
 
-The Fuel Prices UK integration now supports **two methods** for specifying your location:
+The Fuel Prices UK integration supports **three methods** for specifying your location:
 
 ## 1. Map-based Location (Default)
 - **Interactive map interface** - visually select your location
@@ -16,13 +16,21 @@ The Fuel Prices UK integration now supports **two methods** for specifying your 
   - **Direct coordinate input** (format: `lat,long`)
 - Best for: Users who know their exact postcode/address
 
+## 3. Device Tracker, Person or Zone
+- **Follows an entity's location**: a `device_tracker`, `person` or `zone`
+- **Re-read on every update**, so the search moves with a car, phone or person
+- Works away from home: a GPS tracker outside every zone (`not_home`) still reports coordinates
+- If the entity has no location (for example while it's unavailable), its last known location is used
+- Best for: Finding fuel near a vehicle or person, or near a zone such as work
+
 ## Configuration Flow
 
 ### Initial Setup
-1. **Choose Location Method**: Select "Map" or "Address or Postcode"
+1. **Choose Location Method**: Select "Map", "Address or Postcode", or "Follow a device tracker, person or zone"
 2. **Configure Settings**: Based on your choice:
    - **Map**: Select location on interactive map
    - **Address**: Enter postcode (e.g., "SW1A 1AA"), address, or place name
+   - **Device tracker, person or zone**: Pick an entity that has GPS coordinates
 3. **Set Radius**: Specify search radius in miles (0.5-31 miles)
 4. **Select Fuel Types**: Choose which fuel types to monitor
 5. **Set Update Interval**: How often to fetch prices (5 min - 24 hours)
@@ -52,14 +60,16 @@ The Fuel Prices UK integration now supports **two methods** for specifying your 
 
 ### Storage
 - **Location**: Stored as `{latitude, longitude}` dict
-- **Method**: Tracked with `location_method` key ("map" or "address")
+- **Method**: Tracked with `location_method` key ("map", "address" or "device_tracker"; the last also covers person and zone entities)
+- **Entity**: The followed entity's ID is stored as `device_tracker_entity` when using the device tracker method
 - **Address**: Original address string stored when using address method
 - **Radius**: Stored in **kilometers** internally, displayed in **miles**
 
 ### API Integration
-- Both methods provide coordinates to the Fuel Finder API client
+- All methods provide coordinates to the Fuel Finder API client
 - No difference in API behaviour between methods
 - Address lookup happens **only during configuration**, not at runtime
+- With the device tracker method, the entity's location is read at the start of each update
 
 ### Dependencies
 - **geopy** (>=2.2.0): For geocoding and distance calculations

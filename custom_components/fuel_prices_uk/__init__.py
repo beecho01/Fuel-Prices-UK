@@ -403,9 +403,11 @@ class FuelPricesDataUpdateCoordinator(DataUpdateCoordinator[list[dict[str, Any]]
     def _read_tracker_location(self) -> tuple[float, float] | None:
         """Return the tracker's current coordinates, or None if it has none usable.
 
-        Any state counts, including "not_home": a GPS tracker away from every
-        zone still reports its latitude/longitude, and that is exactly when
-        searching around the tracker matters most.
+        The entity can be a device_tracker, person or zone; all of them carry
+        latitude/longitude attributes. Any state counts, including "not_home"
+        (a GPS tracker away from every zone still reports its coordinates, and
+        that is exactly when searching around it matters most) and a zone's
+        numeric state.
         """
         tracker_state = self.hass.states.get(self.device_tracker_entity_id)
         if tracker_state is None or tracker_state.state in ("unavailable", "unknown"):

@@ -47,8 +47,13 @@ _LOGGER = logging.getLogger(__name__)
 LOCATION_METHOD_OPTIONS = {
     "map": "Drop a pin on a map",
     "address": "Enter a postcode or address",
-    "device_tracker": "Use a device tracker entity",
+    "device_tracker": "Follow a device tracker, person or zone",
 }
+
+# Entity domains the "device_tracker" location method can follow. All of them
+# carry latitude/longitude attributes; the stored method key stays
+# "device_tracker" so existing entries keep working (issue #8).
+LOCATION_ENTITY_DOMAINS = ["device_tracker", "person", "zone"]
 
 # hassfest forbids raw URLs in translation strings (they can't be reviewed
 # per-language and can't be updated without a full translation pass), so
@@ -607,7 +612,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
                     {
                         vol.Required(
                             CONF_DEVICE_TRACKER,
-                        ): selector({"entity": {"domain": "device_tracker"}}),
+                        ): selector({"entity": {"domain": LOCATION_ENTITY_DOMAINS}}),
                         vol.Required(
                             CONF_UPDATE_INTERVAL,
                             default=DEFAULT_UPDATE_INTERVAL,
@@ -654,7 +659,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
                 data_schema=vol.Schema(
                     {
                         vol.Required(CONF_DEVICE_TRACKER, default=tracker_entity_id): selector(
-                            {"entity": {"domain": "device_tracker"}}
+                            {"entity": {"domain": LOCATION_ENTITY_DOMAINS}}
                         ),
                         vol.Required(
                             CONF_UPDATE_INTERVAL, default=user_input.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
@@ -1106,7 +1111,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                     vol.Required(
                         CONF_DEVICE_TRACKER,
                         default=user_input.get(CONF_DEVICE_TRACKER, current_tracker) if user_input else current_tracker,
-                    ): selector({"entity": {"domain": "device_tracker"}}),
+                    ): selector({"entity": {"domain": LOCATION_ENTITY_DOMAINS}}),
                     vol.Required(
                         CONF_UPDATE_INTERVAL,
                         default=user_input.get(

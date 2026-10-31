@@ -56,10 +56,10 @@
         }
       },
       "location_device_tracker": {
-        "title": "Configure Fuel Prices UK - Device Tracker",
-        "description": "Select a device tracker entity to use its live GPS location as your search centre. The search will use the tracker's current position on every update.",
+        "title": "Configure Fuel Prices UK - Tracker, Person or Zone",
+        "description": "Select a device tracker, person or zone to use its location as your search centre. Its current position is read on every update, so the search follows a tracker or person as they move.",
         "data": {
-          "device_tracker_entity": "Device Tracker Entity",
+          "device_tracker_entity": "Device Tracker, Person or Zone",
           "update_interval": "Update Interval (seconds)",
           "radius": "Search Radius (miles)",
           "fuel_types": "Fuel Types to Monitor",
@@ -68,7 +68,7 @@
           "max_data_age_days": "Ignore Prices Older Than (in days, 0 = no day limit)"
         },
         "data_description": {
-          "device_tracker_entity": "The device tracker entity whose GPS coordinates will be used as the search centre",
+          "device_tracker_entity": "The device tracker, person or zone whose location is used as the search centre",
           "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
           "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
           "fuel_types": "Which fuel types to track prices for",
@@ -87,8 +87,8 @@
       "invalid_cheapest_count": "Choose between 0 and 5 cheapest options",
       "invalid_address": "Could not find location. Please check your postcode/address and try again.",
       "invalid_location": "Please drop a pin on the map before continuing",
-      "device_tracker_not_found": "Device tracker entity not found. Check the entity ID.",
-      "device_tracker_no_location": "Device tracker does not have GPS coordinates. Ensure the tracker has a location fix.",
+      "device_tracker_not_found": "Entity not found. Check the entity ID.",
+      "device_tracker_no_location": "This entity has no GPS coordinates. Choose a GPS tracker, a person with one, or a zone.",
       "unknown": "An unexpected error occurred"
     },
     "abort": {
@@ -107,8 +107,8 @@
       "invalid_cheapest_count": "Choose between 0 and 5 cheapest options",
       "invalid_address": "Could not find location. Please check your postcode/address and try again.",
       "invalid_location": "Please drop a pin on the map before continuing",
-      "device_tracker_not_found": "Device tracker entity not found. Check the entity ID.",
-      "device_tracker_no_location": "Device tracker does not have GPS coordinates. Ensure the tracker has a location fix.",
+      "device_tracker_not_found": "Entity not found. Check the entity ID.",
+      "device_tracker_no_location": "This entity has no GPS coordinates. Choose a GPS tracker, a person with one, or a zone.",
       "neither_option_enabled": "At least one of cheapest options or nearest stations must be enabled (set either above 0)",
       "unknown": "An unexpected error occurred"
     },
@@ -167,10 +167,10 @@
         }
       },
       "location_device_tracker": {
-        "title": "Update Options - Device Tracker",
-        "description": "Update your Fuel Prices UK device tracker settings",
+        "title": "Update Options - Tracker, Person or Zone",
+        "description": "Update your Fuel Prices UK tracker, person or zone settings",
         "data": {
-          "device_tracker_entity": "Device Tracker Entity",
+          "device_tracker_entity": "Device Tracker, Person or Zone",
           "update_interval": "Update Interval (seconds)",
           "radius": "Search Radius (miles)",
           "fuel_types": "Fuel Types to Monitor",
@@ -179,7 +179,7 @@
           "max_data_age_days": "Ignore Prices Older Than (in days, 0 = no day limit)"
         },
         "data_description": {
-          "device_tracker_entity": "The device tracker entity whose GPS coordinates will be used as the search centre",
+          "device_tracker_entity": "The device tracker, person or zone whose location is used as the search centre",
           "update_interval": "How often to check for updated fuel prices (minimum 5 minutes)",
           "radius": "Maximum distance to search for fuel stations (0.5 to 31 miles)",
           "fuel_types": "Which fuel types to track prices for",
