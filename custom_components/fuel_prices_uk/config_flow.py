@@ -126,7 +126,7 @@ def main_config_schema(user_input=None, hass=None):
                 CONF_NEAREST_COUNT,
                 default=user_input.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT),
             ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-            vol.Optional(
+            vol.Required(
                 CONF_MAX_DATA_AGE_DAYS,
                 default=user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
             ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
@@ -481,7 +481,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
                             CONF_NEAREST_COUNT,
                             default=DEFAULT_NEAREST_COUNT,
                         ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                        vol.Optional(
+                        vol.Required(
                             CONF_MAX_DATA_AGE_DAYS,
                             default=DEFAULT_MAX_DATA_AGE_DAYS,
                         ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
@@ -586,7 +586,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
                         CONF_NEAREST_COUNT,
                         default=user_input.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT),
                     ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                    vol.Optional(
+                    vol.Required(
                         CONF_MAX_DATA_AGE_DAYS,
                         default=user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
                     ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
@@ -628,7 +628,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
                             CONF_NEAREST_COUNT,
                             default=DEFAULT_NEAREST_COUNT,
                         ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                        vol.Optional(
+                        vol.Required(
                             CONF_MAX_DATA_AGE_DAYS,
                             default=DEFAULT_MAX_DATA_AGE_DAYS,
                         ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
@@ -671,7 +671,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
                         vol.Required(
                             CONF_NEAREST_COUNT, default=user_input.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT)
                         ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                        vol.Optional(
+                        vol.Required(
                             CONF_MAX_DATA_AGE_DAYS,
                             default=user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
                         ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
@@ -855,7 +855,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                                 vol.Required(CONF_NEAREST_COUNT, default=nearest_count): vol.All(
                                     vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)
                                 ),
-                                vol.Optional(
+                                vol.Required(
                                     CONF_MAX_DATA_AGE_DAYS,
                                     default=user_input.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
                                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
@@ -910,7 +910,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                         CONF_NEAREST_COUNT,
                         default=merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT),
                     ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                    vol.Optional(
+                    vol.Required(
                         CONF_MAX_DATA_AGE_DAYS,
                         default=merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS),
                     ): vol.All(vol.Coerce(int), vol.Range(min=0, max=30)),
@@ -1043,7 +1043,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                         if user_input
                         else merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT),
                     ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                    vol.Optional(
+                    vol.Required(
                         CONF_MAX_DATA_AGE_DAYS,
                         default=user_input.get(
                             CONF_MAX_DATA_AGE_DAYS, merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS)
@@ -1143,7 +1143,7 @@ class OptionsFlowHandler(OptionsFlowWithConfigEntry):
                         if user_input
                         else merged.get(CONF_NEAREST_COUNT, DEFAULT_NEAREST_COUNT),
                     ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
-                    vol.Optional(
+                    vol.Required(
                         CONF_MAX_DATA_AGE_DAYS,
                         default=user_input.get(
                             CONF_MAX_DATA_AGE_DAYS, merged.get(CONF_MAX_DATA_AGE_DAYS, DEFAULT_MAX_DATA_AGE_DAYS)
