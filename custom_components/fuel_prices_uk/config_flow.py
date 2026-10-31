@@ -482,7 +482,7 @@ class FuelPricesUKFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):  # type
                             CONF_CHEAPEST_COUNT,
                             default=DEFAULT_CHEAPEST_COUNT,
                         ): vol.All(vol.Coerce(int), vol.Range(min=MIN_CHEAPEST_COUNT, max=MAX_CHEAPEST_COUNT)),
-                        vol.Optional(
+                        vol.Required(
                             CONF_NEAREST_COUNT,
                             default=DEFAULT_NEAREST_COUNT,
                         ): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_NEAREST_COUNT)),
