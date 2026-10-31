@@ -6,6 +6,38 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- The device tracker location method can now follow a `person` or `zone`
+  entity as well as a `device_tracker`, so a search can follow a person or
+  centre on a zone such as work
+  ([#8](https://github.com/beecho01/Fuel-Prices-UK/issues/8)). Existing
+  entries are unaffected.
+
+### Fixed
+
+- The startup refresh no longer delays Home Assistant startup. It ran as an
+  ordinary task, which Home Assistant waits for (up to 5 minutes) before it
+  finishes starting. It now runs as a background task, which is also
+  cancelled when the entry is unloaded
+  ([#20](https://github.com/beecho01/Fuel-Prices-UK/issues/20)).
+- Changes to "Ignore Prices Older Than" in the options are now saved. The
+  field had a checkbox, and unticking it put the saved value back. It is now
+  a required field; `0` still means no limit
+  ([#18](https://github.com/beecho01/Fuel-Prices-UK/issues/18), thanks to
+  AtomBrake). The nearest-station count in the first address form had the
+  same stray checkbox, which has also been removed.
+- `hacs.json` now sets the minimum Home Assistant version to 2024.11.0, the
+  first release with the coordinator API the integration uses. It previously
+  named 2024.10.15, a version that doesn't exist.
+
+### Changed
+
+- The README and `docs/LOCATION_METHODS.md` now cover the device tracker
+  location method and how to monitor more than one location.
+
+## [2026.10.15] - 2026-10-15
+
 ### Fixed
 
 - Config entries that use the same Fuel Finder credentials now share one API

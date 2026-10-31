@@ -42,6 +42,21 @@ def test_tracker_in_a_zone_is_used() -> None:
     assert coordinator._resolve_search_coordinates() == (51.9, -0.4)
 
 
+def test_person_entity_is_used() -> None:
+    coordinator = _coordinator({"person.driver": _tracker_state("not_home", 52.2, -1.5)})
+    coordinator.device_tracker_entity_id = "person.driver"
+
+    assert coordinator._resolve_search_coordinates() == (52.2, -1.5)
+
+
+def test_zone_entity_is_used() -> None:
+    """A zone's state is the number of people in it, not home/not_home."""
+    coordinator = _coordinator({"zone.work": _tracker_state("0", 51.9, -0.4)})
+    coordinator.device_tracker_entity_id = "zone.work"
+
+    assert coordinator._resolve_search_coordinates() == (51.9, -0.4)
+
+
 def test_unavailable_tracker_falls_back_to_last_known_location() -> None:
     states = {TRACKER: _tracker_state("not_home", 52.2, -1.5)}
     coordinator = _coordinator(states)

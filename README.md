@@ -94,11 +94,13 @@ Then in Home Assistant:
 4. Follow the configuration wizard:
   - **Fuel Finder API Client ID**
   - **Fuel Finder API Client Secret**
-  - **Location Method** (map or address/postcode)
+  - **Location Method** (map, address/postcode, or follow a device tracker, person or zone)
   - **Update Interval**: How often to fetch prices (minimum 300 seconds)
-  - **Location**: Map pin or address/postcode lookup
+  - **Location**: Map pin, address/postcode lookup, or a device tracker, person or zone entity
   - **Search Radius**: Distance in miles (0.5-31)
   - **Fuel Types**: Fuel types to monitor
+
+To monitor more than one location (for example home and work), add the integration again for each one. Entries can use the same API credentials; they share one API client, so the national dataset is still downloaded once per poll.
 
 ### Configuration Options
 

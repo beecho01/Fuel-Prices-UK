@@ -40,6 +40,7 @@ def _fake_hass() -> MagicMock:
         return MagicMock()
 
     hass.async_create_task = MagicMock(side_effect=_create_task)
+    hass.async_create_background_task = MagicMock(side_effect=_create_task)
     return hass
 
 
@@ -107,7 +108,10 @@ async def test_setup_starts_one_background_refresh_per_entry(fake_api) -> None:
     await integration.async_setup_entry(hass, _entry("home"))
     await integration.async_setup_entry(hass, _entry("work"))
 
-    assert hass.async_create_task.call_count == 2
+    # Home Assistant waits for ordinary tasks before it finishes starting, so the
+    # refresh must be a background task or it holds up startup (issue #20).
+    assert hass.async_create_background_task.call_count == 2
+    hass.async_create_task.assert_not_called()
     hass.config_entries.async_forward_entry_setups.assert_awaited()
 
 
